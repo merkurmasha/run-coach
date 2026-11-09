@@ -12,3 +12,4 @@ __pycache__/
 .coverage
 dist/
 build/
+.DS_Store

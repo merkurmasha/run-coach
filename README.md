@@ -12,6 +12,13 @@ The product name is "run-coach" everywhere, but it's one constant:
 `APP_NAME` in `src/run_coach/config.py`. Change it there to rename the
 whole app.
 
+**Status: early version.** This has only been run end-to-end against
+one real Garmin account so far, and real-world Strava exports and
+long-running schedules haven't been battle-tested. Garmin's Personal
+API response shapes aren't fully documented, so some fields are
+best-effort guesses — check the dashboard's data-gaps panel after your
+first sync. Issues and PRs welcome.
+
 ## Try it with no keys at all
 
 ```
