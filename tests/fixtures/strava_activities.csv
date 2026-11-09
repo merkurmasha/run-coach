@@ -1,0 +1,4 @@
+Activity ID,Activity Date,Activity Name,Activity Type,Activity Description,Elapsed Time,Moving Time,Distance,Average Heart Rate,Max Heart Rate,Elevation Gain,Calories,Private Note
+1001,"Jan 5, 2026, 6:00:00 AM",Morning Run,Run,"felt great",1850,1800,5000.0,152,170,45.0,410,"knee twinge at km 3"
+1002,"Jan 7, 2026, 6:10:00 AM",Easy Run,Run,"",2450,2400,6000.0,145,160,30.0,480,""
+1003,"Jan 9, 2026, 7:00:00 AM",Weights,Workout,"",3000,2900,,,,,,
