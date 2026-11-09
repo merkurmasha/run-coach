@@ -12,6 +12,7 @@ dependencies = [
     "garmin-connect-personal-api-python>=0.1",
     "anthropic>=0.40",
     "requests>=2.32",
+    "python-multipart>=0.0.33",
 ]
 
 [project.scripts]

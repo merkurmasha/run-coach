@@ -72,9 +72,52 @@ def cmd_import_strava(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    import threading
+    import time
+    import webbrowser
+
+    import uvicorn
+
+    from run_coach.web.app import create_app
+
+    if not args.demo:
+        init_db()
+        secrets = Secrets.load()
+        if not secrets.garmin_api_key:
+            print(f"{APP_NAME}: no GARMIN_API_KEY in .env yet -- opening the setup wizard.")
+
+    app = create_app(demo=args.demo)
+    url = f"http://127.0.0.1:{args.port}/"
+
+    def open_browser() -> None:
+        time.sleep(1.0)
+        webbrowser.open(url)
+
+    if not args.no_browser:
+        threading.Thread(target=open_browser, daemon=True).start()
+
+    mode = "demo" if args.demo else "live"
+    print(f"{APP_NAME} ({mode} mode) running at {url}")
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    return 0
+
+
+def _add_serve_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--demo", action="store_true", help="Run on synthetic data, no keys required.")
+    parser.add_argument("--port", type=int, default=8787, help="Port to serve the dashboard on.")
+    parser.add_argument("--no-browser", action="store_true", help="Don't open a browser tab automatically.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=APP_NAME, description="Self-hosted running insights.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    _add_serve_args(parser)
+    parser.set_defaults(func=cmd_serve)
+    sub = parser.add_subparsers(dest="command")
+
+    p_serve = sub.add_parser("serve", help="Start the dashboard (same as running with no command).")
+    _add_serve_args(p_serve)
+    p_serve.set_defaults(func=cmd_serve)
 
     p_init = sub.add_parser("init", help="Create the local SQLite database.")
     p_init.set_defaults(func=cmd_init)

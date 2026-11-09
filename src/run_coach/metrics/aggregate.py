@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from run_coach.metrics.efficiency import monthly_pace_at_hr
+from run_coach.metrics.efficiency import DEFAULT_REFERENCE_HR, monthly_pace_at_hr
 from run_coach.metrics.load import hr_zone_distribution, weekly_volume
 from run_coach.metrics.patterns import cycle_phase_patterns
 from run_coach.metrics.progress import monthly_progress, personal_bests, race_time_predictions
@@ -46,7 +46,9 @@ def build_stats(conn: sqlite3.Connection) -> dict:
             "race_predictions": predictions,
         },
         "aerobic_efficiency": {
-            "monthly_pace_at_reference_hr": monthly_pace_at_hr(activities),
+            "monthly_pace_at_reference_hr": monthly_pace_at_hr(
+                activities, settings.get("reference_hr", DEFAULT_REFERENCE_HR)
+            ),
         },
         "load": {
             "weekly_volume": weekly_volume(activities),

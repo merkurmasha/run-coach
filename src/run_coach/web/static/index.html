@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>run-coach</title>
+<link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+<header class="app-header">
+  <div>
+    <h1 id="app-title">run-coach</h1>
+    <div class="sub">your training data, your machine, your call</div>
+  </div>
+  <div class="header-actions" id="header-actions"></div>
+</header>
+
+<div class="wrap">
+
+  <!-- ===================== WIZARD ===================== -->
+  <div id="wizard-view" class="hidden">
+    <div class="wizard-shell">
+      <div class="wizard-progress" id="wizard-progress"></div>
+
+      <form id="wizard-form">
+        <div class="wizard-step" data-step="0">
+          <h2>Connect Garmin</h2>
+          <p class="hint">From connect.garmin.com/app/settings/personalApiToken. Required — everything else is optional.</p>
+          <div class="field">
+            <label for="garmin_key">Garmin Personal API key</label>
+            <input type="password" id="garmin_key" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="anthropic_key">Claude API key (optional)</label>
+            <input type="password" id="anthropic_key" autocomplete="off" />
+            <div class="field-hint">Without this, the dashboard still works — recommendations and the weekly report need it.</div>
+          </div>
+        </div>
+
+        <div class="wizard-step hidden" data-step="1">
+          <h2>Goals</h2>
+          <div class="field">
+            <label for="target_pace">Target pace (mm:ss per km, optional)</label>
+            <input type="text" id="target_pace" placeholder="5:00" />
+          </div>
+          <div class="field">
+            <label for="race_distance">Race distance (optional)</label>
+            <select id="race_distance">
+              <option value="">None set</option>
+              <option value="5000">5K</option>
+              <option value="10000">10K</option>
+              <option value="21097.5">Half marathon</option>
+              <option value="42195">Marathon</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="race_date">Race date (optional)</label>
+            <input type="date" id="race_date" />
+          </div>
+          <div class="field">
+            <label for="runs_per_week">Runs per week</label>
+            <input type="number" id="runs_per_week" min="1" max="14" value="4" />
+          </div>
+          <div class="field toggle-row">
+            <input type="checkbox" id="follows_watch_plan" />
+            <label for="follows_watch_plan" style="margin:0;">I follow my watch's training plan</label>
+          </div>
+          <div class="field-hint">If on, recommendations become adjustments to that plan, never a replacement.</div>
+        </div>
+
+        <div class="wizard-step hidden" data-step="2">
+          <h2>Cycle tracking</h2>
+          <p class="hint">Used only for the patterns section, and only shown once there's enough data.</p>
+          <div class="field">
+            <label for="cycle_mode">Source</label>
+            <select id="cycle_mode">
+              <option value="garmin">Use Garmin cycle data if available</option>
+              <option value="manual">Manual entry</option>
+              <option value="skip">Skip</option>
+            </select>
+          </div>
+          <div class="field hidden" id="cycle_manual_fields">
+            <label for="cycle_last_start">Most recent period start date</label>
+            <input type="date" id="cycle_last_start" />
+            <div class="field-hint" style="margin-top:10px;">Typical cycle length (days)</div>
+            <input type="number" id="cycle_length" min="15" max="45" value="28" />
+          </div>
+        </div>
+
+        <div class="wizard-step hidden" data-step="3">
+          <h2>Special conditions</h2>
+          <p class="hint">Anything worth knowing about — a skin condition, an old injury. Used as context for recommendations, never diagnosed.</p>
+          <div class="field toggle-row">
+            <input type="checkbox" id="has_conditions" />
+            <label for="has_conditions" style="margin:0;">I have something to note</label>
+          </div>
+          <div class="field hidden" id="conditions_text_field">
+            <textarea id="conditions_text" placeholder="e.g. mild shin splints that flare up after 10k+"></textarea>
+          </div>
+        </div>
+
+        <div class="wizard-step hidden" data-step="4">
+          <h2>Strava history (optional)</h2>
+          <p class="hint">Upload activities.csv from a Strava bulk export. Only distance/time/HR columns are read; descriptions and private notes are dropped.</p>
+          <div class="field">
+            <input type="file" id="strava_file" accept=".csv" />
+          </div>
+        </div>
+
+        <div class="wizard-step hidden" data-step="5">
+          <h2>Timezone &amp; units</h2>
+          <div class="field">
+            <label for="timezone">Timezone (IANA name)</label>
+            <input type="text" id="timezone" placeholder="Europe/Berlin" />
+          </div>
+          <div class="field">
+            <label for="units">Units</label>
+            <select id="units">
+              <option value="km">Kilometers</option>
+              <option value="mi">Miles</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="telegram_token">Telegram bot token (optional, for weekly reports)</label>
+            <input type="password" id="telegram_token" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="telegram_chat">Telegram chat ID (optional)</label>
+            <input type="text" id="telegram_chat" autocomplete="off" />
+          </div>
+        </div>
+      </form>
+
+      <div class="wizard-actions">
+        <button type="button" id="wizard-back">Back</button>
+        <div>
+          <button type="button" id="wizard-skip">Skip</button>
+          <button type="button" id="wizard-next" class="primary">Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== DASHBOARD ===================== -->
+  <div id="dashboard-view" class="hidden">
+
+    <section class="block" id="section-progress">
+      <h2>Progress</h2>
+      <div class="grid cols-3" id="progress-tiles"></div>
+      <div class="card chart-card" style="margin-top:16px;">
+        <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted);">Monthly distance</div>
+        <div class="chart-wrap"><canvas id="chart-monthly-distance"></canvas></div>
+      </div>
+      <div class="grid cols-3" id="pb-tiles" style="margin-top:16px;"></div>
+      <div class="card" style="margin-top:16px;">
+        <div class="label" style="font-size:12px; color:var(--ink-muted); margin-bottom:10px;">
+          Race time estimates
+          <span class="method">?<span class="tooltip">Riegel's formula: T2 = T1 × (D2/D1)^1.06, extrapolated from your longest personal best. Always an estimate, not a guarantee.</span></span>
+        </div>
+        <table class="data-table" id="race-predictions-table"></table>
+      </div>
+    </section>
+
+    <section class="block" id="section-efficiency">
+      <h2>Aerobic efficiency</h2>
+      <div class="card chart-card">
+        <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
+          Monthly pace at reference heart rate
+          <span class="method">?<span class="tooltip">Each month, a least-squares line is fit to pace vs. average heart rate across that month's runs (minimum 8 runs), then read at your reference heart rate. A falling line means more speed for the same effort.</span></span>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-efficiency"></canvas></div>
+      </div>
+    </section>
+
+    <section class="block" id="section-load">
+      <h2>Load &amp; distribution</h2>
+      <div class="grid cols-2">
+        <div class="card chart-card">
+          <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted);">Weekly volume (km)</div>
+          <div class="chart-wrap"><canvas id="chart-weekly-volume"></canvas></div>
+        </div>
+        <div class="card chart-card">
+          <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted);">Time in heart-rate zone</div>
+          <div class="chart-wrap" id="hr-zone-wrap"><canvas id="chart-hr-zones"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="section-recovery">
+      <h2>Recovery <span class="method">?<span class="tooltip">Your most recent 7 days compared to your own trailing 28-day baseline (the 28 days before that week). Garmin data only.</span></span></h2>
+      <div class="grid cols-2" id="recovery-tiles"></div>
+    </section>
+
+    <section class="block" id="section-patterns">
+      <h2>Your patterns</h2>
+      <div id="patterns-cycle"></div>
+      <div class="card" id="patterns-conditions" style="margin-top:14px;"></div>
+    </section>
+
+    <section class="block" id="section-recommendations">
+      <h2>Recommendations</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div class="sub" id="recs-generated-at" style="color:var(--ink-muted); font-size:12px;"></div>
+        <button id="generate-recs-btn">Regenerate</button>
+      </div>
+      <div id="recs-list"></div>
+    </section>
+
+    <section class="block" id="section-gaps">
+      <h2>Data gaps</h2>
+      <div class="card gaps-list" id="gaps-list"></div>
+    </section>
+
+  </div>
+</div>
+
+<div class="footer-note">run-coach is not affiliated with Garmin or Strava. Not medical advice.</div>
+
+<script src="/static/vendor/chartjs/chart.umd.min.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

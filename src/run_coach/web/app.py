@@ -1,0 +1,198 @@
+"""FastAPI app: the dashboard's static front end plus a small JSON API.
+
+Everything here is local-only. The server binds to 127.0.0.1 (see cli.py's
+`serve` command) and holds no auth, because it is meant to run on the
+user's own machine for the user alone.
+"""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from run_coach.config import APP_NAME, DATA_DIR, DB_PATH, Secrets, ensure_data_dir, write_env
+from run_coach.demo.generator import generate_demo_data
+from run_coach.metrics.aggregate import build_stats
+from run_coach.storage.db import (
+    append_sync_log,
+    connect,
+    get_cached_recommendations,
+    init_db,
+    set_setting,
+    transaction,
+)
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+DEMO_DB_PATH = DATA_DIR / "demo.db"
+
+SETTINGS_FIELDS = [
+    "target_pace_s_per_km",
+    "race_distance_m",
+    "race_date",
+    "runs_per_week",
+    "follows_watch_plan",
+    "cycle_mode",
+    "special_conditions_text",
+    "timezone",
+    "units",
+    "reference_hr",
+    "telegram_enabled",
+]
+
+
+def create_app(demo: bool = False) -> FastAPI:
+    app = FastAPI(title=APP_NAME)
+    db_path = DEMO_DB_PATH if demo else DB_PATH
+
+    if demo:
+        ensure_data_dir()
+        if DEMO_DB_PATH.exists():
+            DEMO_DB_PATH.unlink()
+        init_db(DEMO_DB_PATH)
+        conn = connect(DEMO_DB_PATH)
+        generate_demo_data(conn)
+        conn.commit()
+        conn.close()
+    else:
+        init_db(db_path)
+
+    def get_conn():
+        return connect(db_path)
+
+    @app.get("/api/status")
+    def status() -> dict:
+        secrets = Secrets.load()
+        with get_conn() as conn:
+            from run_coach.storage.db import all_settings
+
+            settings = all_settings(conn)
+        setup_complete = demo or bool(secrets.garmin_api_key)
+        return {
+            "app_name": APP_NAME,
+            "demo": demo,
+            "setup_complete": setup_complete,
+            "has_claude": demo or secrets.has_claude(),
+            "has_telegram": demo or secrets.has_telegram(),
+            "settings": {k: settings.get(k) for k in SETTINGS_FIELDS},
+        }
+
+    @app.get("/api/stats")
+    def stats() -> dict:
+        conn = get_conn()
+        try:
+            return build_stats(conn)
+        finally:
+            conn.close()
+
+    @app.get("/api/recommendations")
+    def recommendations() -> dict:
+        conn = get_conn()
+        try:
+            cached = get_cached_recommendations(conn)
+        finally:
+            conn.close()
+        if cached is None:
+            return {"generated_at": None, "recommendations": [], "stats_summary": None}
+        return cached
+
+    @app.post("/api/recommendations/generate")
+    def generate_recommendations() -> dict:
+        if demo:
+            raise HTTPException(400, "Recommendations are pre-cached in demo mode; nothing to regenerate.")
+        from run_coach.recommendations.generate import generate_and_cache
+
+        secrets = Secrets.load()
+        if not secrets.has_claude():
+            raise HTTPException(400, "No ANTHROPIC_API_KEY configured. Add one in setup to enable this.")
+        conn = get_conn()
+        try:
+            result = generate_and_cache(conn, secrets)
+            conn.commit()
+        finally:
+            conn.close()
+        return result
+
+    @app.post("/api/settings")
+    def save_settings(payload: dict[str, Any]) -> dict:
+        if demo:
+            raise HTTPException(400, "Settings are read-only in demo mode.")
+        conn = get_conn()
+        try:
+            for key in SETTINGS_FIELDS:
+                if key in payload:
+                    set_setting(conn, key, payload[key])
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": True}
+
+    @app.post("/api/setup/secrets")
+    def save_secrets(payload: dict[str, str]) -> dict:
+        if demo:
+            raise HTTPException(400, "Setup is disabled in demo mode.")
+        updates = {}
+        for key in ("GARMIN_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_MODEL", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
+            if key in payload and payload[key] is not None:
+                updates[key] = payload[key]
+        write_env(updates)
+        return {"ok": True}
+
+    @app.post("/api/sync")
+    def trigger_sync(days: int = 365) -> dict:
+        if demo:
+            raise HTTPException(400, "Demo mode uses synthetic data; there is nothing to sync.")
+        from run_coach.garmin.sync import sync_garmin
+
+        secrets = Secrets.load()
+        if not secrets.garmin_api_key:
+            raise HTTPException(400, "No GARMIN_API_KEY configured yet.")
+        with transaction(db_path) as conn:
+            result = sync_garmin(conn, api_key=secrets.garmin_api_key, days=days)
+            append_sync_log(
+                conn,
+                source="garmin",
+                range_start=result["range"]["start"],
+                range_end=result["range"]["end"],
+                counts=result["counts"],
+                data_gaps=result["data_gaps"],
+            )
+        return result
+
+    @app.post("/api/strava/import")
+    async def strava_import(file: UploadFile) -> dict:
+        if demo:
+            raise HTTPException(400, "Demo mode uses synthetic data; there is nothing to import.")
+        from run_coach.storage.db import get_setting
+        from run_coach.strava.sync import import_strava_csv
+
+        upload_dir = ensure_data_dir() / "uploads"
+        upload_dir.mkdir(exist_ok=True)
+        dest = upload_dir / "activities.csv"
+        with dest.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+
+        with transaction(db_path) as conn:
+            timezone_name = get_setting(conn, "timezone")
+            result = import_strava_csv(conn, dest, timezone_name=timezone_name)
+            append_sync_log(
+                conn, source="strava", range_start=None, range_end=None,
+                counts=result["counts"], data_gaps=result["data_gaps"],
+            )
+        return result
+
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    @app.get("/")
+    def index() -> FileResponse:
+        return FileResponse(STATIC_DIR / "index.html")
+
+    @app.exception_handler(404)
+    async def not_found(_request, _exc):
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    return app
