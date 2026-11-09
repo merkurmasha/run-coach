@@ -401,6 +401,7 @@
     renderRecommendations(recs);
     renderGaps(stats);
 
+    if (status.demo) document.getElementById("generate-recs-btn").classList.add("hidden");
     document.getElementById("generate-recs-btn").addEventListener("click", async (e) => {
       e.target.disabled = true;
       e.target.textContent = "Generating…";

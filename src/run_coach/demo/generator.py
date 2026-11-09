@@ -9,7 +9,50 @@ import random
 import sqlite3
 from datetime import date, timedelta
 
-from run_coach.storage.db import Activity, set_setting, upsert_activity, upsert_cycle_entry, upsert_daily_metric
+from run_coach.metrics.aggregate import build_stats
+from run_coach.storage.db import (
+    Activity,
+    set_cached_recommendations,
+    set_setting,
+    upsert_activity,
+    upsert_cycle_entry,
+    upsert_daily_metric,
+)
+
+DEMO_RECOMMENDATIONS = [
+    {
+        "text": (
+            "Your monthly distance has grown steadily over this training block without a matching jump in "
+            "pace-at-reference-heart-rate, which is consistent with building aerobic base before intensity."
+        ),
+        "evidence": "moderate",
+        "rationale": "progressive-overload trend read from monthly distance and the pace-at-HR regression",
+    },
+    {
+        "text": (
+            "Recent HRV and resting heart rate sit close to your own 28-day baseline, so nothing in recovery "
+            "is flagging overreaching right now."
+        ),
+        "evidence": "strong",
+        "rationale": "7-day vs. trailing 28-day baseline comparison",
+    },
+    {
+        "text": (
+            "Heart-rate zone time this period is fairly evenly spread across zones rather than concentrated in "
+            "an easy zone, which is worth a look if the goal is a bigger easy-running base."
+        ),
+        "evidence": "hypothesis",
+        "rationale": "zone-distribution share across logged activities",
+    },
+    {
+        "text": (
+            "You've noted shin tightness after longer runs; if that persists or worsens, it's worth getting a "
+            "physiotherapist's opinion rather than adjusting training on a guess."
+        ),
+        "evidence": "strong",
+        "rationale": "logged special-conditions text naming a possible injury",
+    },
+]
 
 DEMO_SEED = 20261109
 
@@ -83,6 +126,9 @@ def generate_demo_data(conn: sqlite3.Connection, days: int = 270) -> None:
     set_setting(conn, "special_conditions_text", "Mild shin tightness after longer runs (demo data).")
     set_setting(conn, "timezone", "UTC")
     set_setting(conn, "units", "km")
+
+    stats = build_stats(conn)
+    set_cached_recommendations(conn, stats, DEMO_RECOMMENDATIONS)
 
 
 def _synthetic_zones(rng: random.Random, moving_time_s: float) -> dict[int, float]:

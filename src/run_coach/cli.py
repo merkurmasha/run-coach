@@ -72,6 +72,38 @@ def cmd_import_strava(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    from run_coach.report.telegram import send_telegram_report
+    from run_coach.report.weekly import generate_weekly_report
+
+    secrets = Secrets.load()
+    init_db()
+    with transaction() as conn:
+        try:
+            report = generate_weekly_report(conn, secrets, weeks=args.weeks)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+
+    print("Highlight:", report["highlight"])
+    print("Watch out:", report["watch_out"])
+    print()
+    print("Next week's objective:", report["next_week"]["objective"])
+    for kr in report["next_week"]["key_results"]:
+        print(" -", kr)
+    print("Fallback sessions:")
+    for fs in report["next_week"]["fallback_sessions"]:
+        print(" -", fs)
+
+    if args.send_telegram:
+        if not secrets.has_telegram():
+            print("\nNo TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID configured; skipped sending.", file=sys.stderr)
+            return 1
+        send_telegram_report(report, secrets.telegram_bot_token, secrets.telegram_chat_id)
+        print("\nSent to Telegram.")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import threading
     import time
@@ -130,6 +162,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_strava.add_argument("csv_path", help="Path to activities.csv from your Strava export.")
     p_strava.add_argument("--timezone", default=None, help="IANA timezone, e.g. Europe/Berlin.")
     p_strava.set_defaults(func=cmd_import_strava)
+
+    p_report = sub.add_parser("report", help="Generate the weekly report (needs ANTHROPIC_API_KEY).")
+    p_report.add_argument("--weeks", type=int, default=8, help="Weeks of history to give as context.")
+    p_report.add_argument("--send-telegram", action="store_true", help="Also send the report to Telegram.")
+    p_report.set_defaults(func=cmd_report)
 
     return parser
 
