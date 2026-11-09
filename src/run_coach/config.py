@@ -59,6 +59,11 @@ def write_env(updates: dict[str, str], path: Path = ENV_PATH) -> None:
     os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
 
 
+def clear_env(path: Path = ENV_PATH) -> None:
+    """Delete the .env file entirely, forgetting every stored key."""
+    path.unlink(missing_ok=True)
+
+
 @dataclass(frozen=True)
 class Secrets:
     """Everything that must never land in SQLite, logs, or stdout."""

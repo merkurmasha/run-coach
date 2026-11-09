@@ -59,6 +59,7 @@
     saveSettings: (payload) => fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((r) => r.json()),
     saveSecrets: (payload) => fetch("/api/setup/secrets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((r) => r.json()),
     sync: () => fetch("/api/sync", { method: "POST" }).then((r) => r.json()),
+    reset: () => fetch("/api/reset", { method: "POST" }).then((r) => r.json()),
     importStrava: (file) => {
       const form = new FormData();
       form.append("file", file);
@@ -389,6 +390,25 @@
         }
       });
       actions.appendChild(syncBtn);
+
+      const logoutBtn = el("button", { class: "danger", title: "Forget stored keys and all synced data, and return to setup" }, ["Log out"]);
+      logoutBtn.addEventListener("click", async () => {
+        const confirmed = confirm(
+          "Log out of run-coach?\n\nThis deletes your stored Garmin/Claude/Telegram keys and all synced data on this machine, then returns you to setup. This can't be undone."
+        );
+        if (!confirmed) return;
+        logoutBtn.disabled = true;
+        logoutBtn.textContent = "Logging out…";
+        try {
+          await api.reset();
+          location.reload();
+        } catch (e) {
+          logoutBtn.disabled = false;
+          logoutBtn.textContent = "Log out";
+          alert("Could not log out: " + e);
+        }
+      });
+      actions.appendChild(logoutBtn);
     }
 
     document.getElementById("dashboard-view").classList.remove("hidden");

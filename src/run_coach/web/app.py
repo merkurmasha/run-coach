@@ -20,6 +20,7 @@ from run_coach.config import (
     DATA_DIR,
     DB_PATH,
     Secrets,
+    clear_env,
     ensure_data_dir,
     write_env,
 )
@@ -147,6 +148,19 @@ def create_app(demo: bool = False) -> FastAPI:
             if key in payload and payload[key] is not None:
                 updates[key] = payload[key]
         write_env(updates)
+        return {"ok": True}
+
+    @app.post("/api/reset")
+    def reset() -> dict:
+        if demo:
+            raise HTTPException(400, "Demo mode has nothing to reset.")
+        clear_env()
+        if db_path.exists():
+            db_path.unlink()
+        uploads_dir = DATA_DIR / "uploads"
+        if uploads_dir.exists():
+            shutil.rmtree(uploads_dir)
+        init_db(db_path)
         return {"ok": True}
 
     @app.post("/api/sync")

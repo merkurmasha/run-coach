@@ -144,6 +144,9 @@ button.primary:hover { opacity: 0.92; }
 
 button:disabled { opacity: 0.5; cursor: default; }
 
+button.danger { color: var(--critical); }
+button.danger:hover { border-color: var(--critical); }
+
 section.block {
   margin: 44px 0;
 }
