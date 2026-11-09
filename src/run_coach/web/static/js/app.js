@@ -175,9 +175,9 @@
     const lastMonth = monthly[monthly.length - 1];
     const tiles = document.getElementById("progress-tiles");
     tiles.innerHTML = "";
-    tiles.appendChild(statTile("This month", lastMonth ? fmtKm(lastMonth.distance_km) : "—", lastMonth ? `${lastMonth.runs} runs` : "No runs yet"));
-    tiles.appendChild(statTile("Avg pace", lastMonth ? fmtPaceSec(lastMonth.avg_pace_s_per_km) : "—", "this month"));
-    tiles.appendChild(statTile("Total runs", String(stats.n_running_activities), "all time"));
+    tiles.appendChild(statTile("This month", lastMonth ? fmtKm(lastMonth.distance_km) : "—", lastMonth ? `${lastMonth.runs} runs` : "No runs yet", "Sum of distance for all activities this calendar month whose type contains \"run\"."));
+    tiles.appendChild(statTile("Avg pace", lastMonth ? fmtPaceSec(lastMonth.avg_pace_s_per_km) : "—", "this month", "Total distance this month ÷ total moving time this month (not an average of per-run paces)."));
+    tiles.appendChild(statTile("Total runs", String(stats.n_running_activities), "all time", "Count of every synced activity whose type contains \"run\", Garmin and Strava combined after deduplication."));
 
     new Chart(document.getElementById("chart-monthly-distance"), {
       type: "bar",

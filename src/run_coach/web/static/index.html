@@ -149,7 +149,10 @@
       <h2>Progress</h2>
       <div class="grid cols-3" id="progress-tiles"></div>
       <div class="card chart-card" style="margin-top:16px;">
-        <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted);">Monthly distance</div>
+        <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
+          Monthly distance
+          <span class="method">?<span class="tooltip">Sum of distance per calendar month for every activity whose type contains "run", Garmin and Strava combined after deduplication.</span></span>
+        </div>
         <div class="chart-wrap"><canvas id="chart-monthly-distance"></canvas></div>
       </div>
       <div class="grid cols-3" id="pb-tiles" style="margin-top:16px;"></div>
@@ -177,11 +180,17 @@
       <h2>Load &amp; distribution</h2>
       <div class="grid cols-2">
         <div class="card chart-card">
-          <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted);">Weekly volume (km)</div>
+          <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
+            Weekly volume (km)
+            <span class="method">?<span class="tooltip">Sum of running distance per ISO calendar week (Monday–Sunday).</span></span>
+          </div>
           <div class="chart-wrap"><canvas id="chart-weekly-volume"></canvas></div>
         </div>
         <div class="card chart-card">
-          <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted);">Time in heart-rate zone</div>
+          <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
+            Time in heart-rate zone
+            <span class="method">?<span class="tooltip">Share of total zone-tagged minutes across all running activities where Garmin provided per-zone time. Activities without zone data aren't counted in the denominator.</span></span>
+          </div>
           <div class="chart-wrap" id="hr-zone-wrap"><canvas id="chart-hr-zones"></canvas></div>
         </div>
       </div>

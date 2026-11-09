@@ -1,4 +1,3 @@
-import sqlite3
 
 from run_coach.storage.db import (
     Activity,

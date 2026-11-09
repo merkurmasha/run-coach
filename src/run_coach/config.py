@@ -70,7 +70,7 @@ class Secrets:
     telegram_chat_id: str | None
 
     @classmethod
-    def load(cls) -> "Secrets":
+    def load(cls) -> Secrets:
         env = {**read_env(), **os.environ}
         return cls(
             garmin_api_key=env.get("GARMIN_API_KEY") or None,

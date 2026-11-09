@@ -13,7 +13,10 @@ import anthropic
 from run_coach.config import Secrets
 from run_coach.metrics.common import is_running, iso_week_key, local_date_of
 from run_coach.metrics.recovery import recovery_summary
-from run_coach.recommendations.validator import allowed_numbers_from_stats, filter_text_against_numbers
+from run_coach.recommendations.validator import (
+    allowed_numbers_from_stats,
+    filter_text_against_numbers,
+)
 from run_coach.storage.db import all_activities, all_daily_metrics, all_settings
 
 SYSTEM_PROMPT = """You write a short weekly running report for one runner, from the \

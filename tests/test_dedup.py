@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from run_coach.storage.db import Activity, all_activities, connect, init_db, upsert_activity
+from run_coach.storage.db import (
+    Activity,
+    all_activities,
+    connect,
+    init_db,
+    upsert_activity,
+)
 from run_coach.strava.sync import import_strava_csv
 
 FIXTURE = Path(__file__).parent / "fixtures" / "strava_activities.csv"

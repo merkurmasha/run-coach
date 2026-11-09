@@ -10,9 +10,19 @@ import sqlite3
 from run_coach.metrics.efficiency import DEFAULT_REFERENCE_HR, monthly_pace_at_hr
 from run_coach.metrics.load import hr_zone_distribution, weekly_volume
 from run_coach.metrics.patterns import cycle_phase_patterns
-from run_coach.metrics.progress import monthly_progress, personal_bests, race_time_predictions
+from run_coach.metrics.progress import (
+    monthly_progress,
+    personal_bests,
+    race_time_predictions,
+)
 from run_coach.metrics.recovery import recovery_summary
-from run_coach.storage.db import all_activities, all_cycle_entries, all_daily_metrics, all_settings, latest_data_gaps
+from run_coach.storage.db import (
+    all_activities,
+    all_cycle_entries,
+    all_daily_metrics,
+    all_settings,
+    latest_data_gaps,
+)
 
 
 def build_stats(conn: sqlite3.Connection) -> dict:

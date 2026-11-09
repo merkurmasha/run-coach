@@ -11,7 +11,12 @@ yet" instead of a fitted value.
 
 from __future__ import annotations
 
-from run_coach.metrics.common import MIN_SAMPLE_SIZE, is_running, local_date_of, month_key
+from run_coach.metrics.common import (
+    MIN_SAMPLE_SIZE,
+    is_running,
+    local_date_of,
+    month_key,
+)
 
 DEFAULT_REFERENCE_HR = 150.0
 

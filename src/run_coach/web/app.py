@@ -15,7 +15,14 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from run_coach.config import APP_NAME, DATA_DIR, DB_PATH, Secrets, ensure_data_dir, write_env
+from run_coach.config import (
+    APP_NAME,
+    DATA_DIR,
+    DB_PATH,
+    Secrets,
+    ensure_data_dir,
+    write_env,
+)
 from run_coach.demo.generator import generate_demo_data
 from run_coach.metrics.aggregate import build_stats
 from run_coach.storage.db import (

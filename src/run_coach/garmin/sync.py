@@ -13,7 +13,12 @@ from run_coach.garmin.client import (
     parse_activity,
     parse_hr_zone_minutes,
 )
-from run_coach.storage.db import Activity, upsert_activity, upsert_cycle_entry, upsert_daily_metric
+from run_coach.storage.db import (
+    Activity,
+    upsert_activity,
+    upsert_cycle_entry,
+    upsert_daily_metric,
+)
 
 
 def sync_garmin(

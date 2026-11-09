@@ -4,7 +4,7 @@ network call or real API key is ever needed to test them.
 
 from types import SimpleNamespace
 
-import run_coach.recommendations.claude_client as claude_client
+from run_coach.recommendations import claude_client
 
 
 class FakeToolUseBlock:

@@ -1,5 +1,11 @@
 from run_coach.garmin.sync import sync_garmin
-from run_coach.storage.db import all_activities, all_cycle_entries, all_daily_metrics, connect, init_db
+from run_coach.storage.db import (
+    all_activities,
+    all_cycle_entries,
+    all_daily_metrics,
+    connect,
+    init_db,
+)
 
 
 class FakeGarminClient:
@@ -40,7 +46,6 @@ class FakeGarminClient:
 
     def menstrual_cycle_summary(self, day, gaps):
         gaps.append("cycle: fake client returns nothing")
-        return None
 
     def close(self):
         self.closed = True

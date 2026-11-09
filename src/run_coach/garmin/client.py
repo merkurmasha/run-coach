@@ -75,7 +75,7 @@ class GarminClient:
         self._client.close()
         self._authenticator.close()
 
-    def __enter__(self) -> "GarminClient":
+    def __enter__(self) -> GarminClient:
         return self
 
     def __exit__(self, *exc: object) -> None:

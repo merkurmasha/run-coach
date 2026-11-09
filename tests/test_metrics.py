@@ -12,7 +12,14 @@ from run_coach.metrics.progress import (
     riegel_predict,
 )
 from run_coach.metrics.recovery import recovery_summary
-from run_coach.storage.db import Activity, connect, init_db, upsert_activity, upsert_cycle_entry, upsert_daily_metric
+from run_coach.storage.db import (
+    Activity,
+    connect,
+    init_db,
+    upsert_activity,
+    upsert_cycle_entry,
+    upsert_daily_metric,
+)
 
 
 def make_run(i, local_date, distance_m, moving_time_s, avg_hr=150.0):
