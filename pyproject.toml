@@ -1,0 +1,30 @@
+[project]
+name = "run-coach"
+version = "0.1.0"
+description = "Self-hosted running insights: Garmin + optional Strava + personal context, in one local dashboard."
+authors = [
+    { name = "Masha Merkur", email = "265581290+merkurmasha@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "garmin-connect-personal-api-python>=0.1",
+    "anthropic>=0.40",
+    "requests>=2.32",
+]
+
+[project.scripts]
+run-coach = "run_coach.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
