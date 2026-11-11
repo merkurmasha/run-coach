@@ -447,6 +447,26 @@
     box.appendChild(submitBtn);
   }
 
+  function initClaudeTestButton() {
+    const btn = document.getElementById("test-claude-btn");
+    const resultEl = document.getElementById("test-claude-result");
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      resultEl.textContent = "Testing…";
+      resultEl.className = "";
+      try {
+        const result = await api.testClaude();
+        resultEl.textContent = result.message;
+        resultEl.className = result.ok ? "test-ok" : "test-fail";
+      } catch (e) {
+        resultEl.textContent = e.message;
+        resultEl.className = "test-fail";
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
   function initStravaSettings() {
     const fileInput = document.getElementById("settings_strava_file");
     const importBtn = document.getElementById("settings-strava-import-btn");
@@ -536,6 +556,7 @@
       });
       actions.appendChild(logoutBtn);
       initStravaSettings();
+      initClaudeTestButton();
     } else {
       document.getElementById("section-settings").classList.add("hidden");
     }

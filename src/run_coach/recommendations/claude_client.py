@@ -1,8 +1,10 @@
 """Turns the aggregated stats JSON into worded recommendations via Claude.
 
 Claude never sees raw activity rows -- only the dict build_stats() produces.
-Structure is forced through tool use (a single required tool call) so the
-response is always well-formed JSON, never prose to parse.
+Structure is guaranteed through `output_config.format` (JSON-schema
+structured outputs), not forced tool use -- forcing a tool call
+(`tool_choice: {"type": "tool", ...}`) returns a 400 on Claude Sonnet 5.5
+and newer models, which is what this project's CLAUDE_MODEL defaults to.
 """
 
 from __future__ import annotations
@@ -43,31 +45,27 @@ to the user's existing watch-generated plan -- never as a replacement plan.
 thin, but don't apologize at length.
 8. Write 3 to 6 recommendations. Each should be one to three sentences.
 
-Call submit_recommendations exactly once with your result."""
+Respond with the recommendations JSON described by the schema."""
 
-TOOL_SCHEMA = {
-    "name": "submit_recommendations",
-    "description": "Submit the finished set of recommendations.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "recommendations": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "text": {"type": "string"},
-                        "evidence": {"type": "string", "enum": ["strong", "moderate", "hypothesis"]},
-                        "rationale": {"type": "string"},
-                    },
-                    "required": ["text", "evidence", "rationale"],
+OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "recommendations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "evidence": {"type": "string", "enum": ["strong", "moderate", "hypothesis"]},
+                    "rationale": {"type": "string"},
                 },
-                "minItems": 1,
-                "maxItems": 6,
-            }
-        },
-        "required": ["recommendations"],
+                "required": ["text", "evidence", "rationale"],
+                "additionalProperties": False,
+            },
+        }
     },
+    "required": ["recommendations"],
+    "additionalProperties": False,
 }
 
 
@@ -77,8 +75,7 @@ def generate_recommendations(stats: dict, api_key: str, model: str) -> list[dict
         model=model,
         max_tokens=2000,
         system=SYSTEM_PROMPT,
-        tools=[TOOL_SCHEMA],
-        tool_choice={"type": "tool", "name": "submit_recommendations"},
+        output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
         messages=[
             {
                 "role": "user",
@@ -87,6 +84,9 @@ def generate_recommendations(stats: dict, api_key: str, model: str) -> list[dict
         ],
     )
     for block in response.content:
-        if block.type == "tool_use" and block.name == "submit_recommendations":
-            return block.input.get("recommendations", [])
+        if block.type == "text":
+            # The schema can't enforce a count (structured outputs rejects
+            # minItems/maxItems on arrays) -- the prompt asks for 3-6, this
+            # is just a defensive cap against a runaway response.
+            return json.loads(block.text).get("recommendations", [])[:6]
     return []

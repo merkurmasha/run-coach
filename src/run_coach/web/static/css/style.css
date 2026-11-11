@@ -147,6 +147,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 button.danger { color: var(--critical); }
 button.danger:hover { border-color: var(--critical); }
 
+.test-ok { color: var(--good); font-size: 13px; }
+.test-fail { color: var(--critical); font-size: 13px; }
+
 section.block {
   margin: 44px 0;
 }

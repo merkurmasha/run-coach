@@ -2,34 +2,34 @@
 network call or real API key is ever needed to test them.
 """
 
+import json
 from types import SimpleNamespace
 
 from run_coach.recommendations import claude_client
 
 
-class FakeToolUseBlock:
-    def __init__(self, name, input_dict):
-        self.type = "tool_use"
-        self.name = name
-        self.input = input_dict
+class FakeTextBlock:
+    def __init__(self, text):
+        self.type = "text"
+        self.text = text
 
 
 class FakeMessages:
-    def __init__(self, response_input):
-        self._response_input = response_input
+    def __init__(self, response_json):
+        self._response_json = response_json
         self.last_kwargs = None
 
     def create(self, **kwargs):
         self.last_kwargs = kwargs
-        return SimpleNamespace(content=[FakeToolUseBlock(kwargs["tool_choice"]["name"], self._response_input)])
+        return SimpleNamespace(content=[FakeTextBlock(json.dumps(self._response_json))])
 
 
 class FakeAnthropic:
-    def __init__(self, response_input, api_key=None):
-        self.messages = FakeMessages(response_input)
+    def __init__(self, response_json, api_key=None):
+        self.messages = FakeMessages(response_json)
 
 
-def test_generate_recommendations_calls_forced_tool_and_parses_input(monkeypatch):
+def test_generate_recommendations_uses_structured_output_not_forced_tool_choice(monkeypatch):
     fake_recs = {"recommendations": [{"text": "x", "evidence": "strong", "rationale": "y"}]}
     fake_client = FakeAnthropic(fake_recs)
     monkeypatch.setattr(claude_client.anthropic, "Anthropic", lambda api_key: fake_client)
@@ -38,10 +38,12 @@ def test_generate_recommendations_calls_forced_tool_and_parses_input(monkeypatch
 
     assert result == fake_recs["recommendations"]
     assert fake_client.messages.last_kwargs["model"] == "fake-model"
-    assert fake_client.messages.last_kwargs["tool_choice"] == {"type": "tool", "name": "submit_recommendations"}
+    # Forced tool_choice returns a 400 on Claude Sonnet 5.5 and newer -- must not be sent.
+    assert "tool_choice" not in fake_client.messages.last_kwargs
+    assert fake_client.messages.last_kwargs["output_config"]["format"]["type"] == "json_schema"
 
 
-def test_generate_recommendations_returns_empty_list_when_no_tool_use(monkeypatch):
+def test_generate_recommendations_returns_empty_list_when_no_text_block(monkeypatch):
     class EmptyMessages:
         def create(self, **kwargs):
             return SimpleNamespace(content=[])

@@ -7,10 +7,12 @@ user's own machine for the user alone.
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 from typing import Any
 
+import anthropic
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -51,6 +53,26 @@ SETTINGS_FIELDS = [
     "reference_hr",
     "telegram_enabled",
 ]
+
+_KEY_PATTERN = re.compile(r"sk-ant-[A-Za-z0-9_\-]+")
+
+
+def _describe_claude_error(exc: Exception) -> str:
+    """A short, redacted, user-facing description of a Claude API failure."""
+    message = str(exc)
+    if isinstance(exc, anthropic.AuthenticationError):
+        message = "Authentication failed -- check that ANTHROPIC_API_KEY in .env is correct."
+    elif isinstance(exc, anthropic.PermissionDeniedError):
+        message = "The API key is valid but lacks permission for this model."
+    elif isinstance(exc, anthropic.NotFoundError):
+        message = f"Model or endpoint not found: {message}"
+    elif isinstance(exc, anthropic.RateLimitError):
+        message = "Rate limited by the Anthropic API -- try again shortly."
+    elif isinstance(exc, anthropic.APIConnectionError):
+        message = "Could not reach the Anthropic API -- check your network connection."
+    elif isinstance(exc, anthropic.APIStatusError):
+        message = f"Anthropic API error ({exc.status_code}): {exc.message}"
+    return _KEY_PATTERN.sub("[REDACTED]", message)
 
 
 def create_app(demo: bool = False) -> FastAPI:
@@ -119,11 +141,33 @@ def create_app(demo: bool = False) -> FastAPI:
             raise HTTPException(400, "No ANTHROPIC_API_KEY configured. Add one in setup to enable this.")
         conn = get_conn()
         try:
-            result = generate_and_cache(conn, secrets)
+            try:
+                result = generate_and_cache(conn, secrets)
+            except Exception as exc:
+                raise HTTPException(502, _describe_claude_error(exc)) from exc
             conn.commit()
         finally:
             conn.close()
         return result
+
+    @app.post("/api/claude/test")
+    def test_claude() -> dict:
+        if demo:
+            raise HTTPException(400, "Demo mode doesn't use the Claude API.")
+        secrets = Secrets.load()
+        if not secrets.anthropic_api_key:
+            return {"ok": False, "stage": "config", "message": "ANTHROPIC_API_KEY is not set in .env."}
+
+        client = anthropic.Anthropic(api_key=secrets.anthropic_api_key)
+        try:
+            client.messages.create(
+                model=secrets.claude_model,
+                max_tokens=16,
+                messages=[{"role": "user", "content": "Reply with only the word: ok"}],
+            )
+        except Exception as exc:  # defensive: this is a diagnostic endpoint, any failure is a result to show
+            return {"ok": False, "stage": "api", "message": _describe_claude_error(exc)}
+        return {"ok": True, "stage": "done", "message": f"Connected -- {secrets.claude_model} responded."}
 
     @app.post("/api/settings")
     def save_settings(payload: dict[str, Any]) -> dict:

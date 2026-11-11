@@ -1,6 +1,9 @@
 """Weekly report: last complete week vs. the average of the previous three,
 written up by Claude from a small aggregated JSON (never raw activities),
 with every number it writes checked against that same JSON.
+
+Structure is guaranteed through `output_config.format` (JSON-schema
+structured outputs), not forced tool use -- see claude_client.py for why.
 """
 
 from __future__ import annotations
@@ -26,29 +29,29 @@ special_conditions; if it sounds like pain or injury, the watch_out or a key res
 should suggest checking with a professional rather than pushing through it. If \
 follows_watch_plan is true, next_week.objective and key_results must read as \
 adjustments to the user's existing plan, not a replacement for it. Keep it concise: \
-highlight and watch_out are one sentence each; key_results are short, each pairing a \
-target with one fallback_session. Call submit_report exactly once."""
+highlight and watch_out are one sentence each. next_week.key_results must have exactly \
+three short items, and next_week.fallback_sessions must have exactly three items, each \
+fallback_sessions[i] pairing with key_results[i]. Respond with the report JSON described \
+by the schema."""
 
-TOOL_SCHEMA = {
-    "name": "submit_report",
-    "description": "Submit the finished weekly report.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "highlight": {"type": "string"},
-            "watch_out": {"type": "string"},
-            "next_week": {
-                "type": "object",
-                "properties": {
-                    "objective": {"type": "string"},
-                    "key_results": {"type": "array", "items": {"type": "string"}, "minItems": 3, "maxItems": 3},
-                    "fallback_sessions": {"type": "array", "items": {"type": "string"}, "minItems": 3, "maxItems": 3},
-                },
-                "required": ["objective", "key_results", "fallback_sessions"],
+OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "highlight": {"type": "string"},
+        "watch_out": {"type": "string"},
+        "next_week": {
+            "type": "object",
+            "properties": {
+                "objective": {"type": "string"},
+                "key_results": {"type": "array", "items": {"type": "string"}},
+                "fallback_sessions": {"type": "array", "items": {"type": "string"}},
             },
+            "required": ["objective", "key_results", "fallback_sessions"],
+            "additionalProperties": False,
         },
-        "required": ["highlight", "watch_out", "next_week"],
     },
+    "required": ["highlight", "watch_out", "next_week"],
+    "additionalProperties": False,
 }
 
 
@@ -122,15 +125,14 @@ def generate_weekly_report(conn: sqlite3.Connection, secrets: Secrets, weeks: in
         model=secrets.claude_model,
         max_tokens=1200,
         system=SYSTEM_PROMPT,
-        tools=[TOOL_SCHEMA],
-        tool_choice={"type": "tool", "name": "submit_report"},
+        output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
         messages=[{"role": "user", "content": f"Here is this week's context JSON:\n\n{json.dumps(context, default=str)}"}],
     )
 
     report = None
     for block in response.content:
-        if block.type == "tool_use" and block.name == "submit_report":
-            report = block.input
+        if block.type == "text":
+            report = json.loads(block.text)
             break
     if report is None:
         raise RuntimeError("Claude did not return a report.")
