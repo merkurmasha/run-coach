@@ -145,75 +145,121 @@
   <!-- ===================== DASHBOARD ===================== -->
   <div id="dashboard-view" class="hidden">
 
-    <section class="block" id="section-progress">
-      <h2>Progress</h2>
-      <div class="grid cols-3" id="progress-tiles"></div>
-      <div class="card chart-card" style="margin-top:16px;">
-        <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
-          Monthly distance
-          <span class="method">?<span class="tooltip">Sum of distance per calendar month for every activity whose type contains "run", Garmin and Strava combined after deduplication.</span></span>
-        </div>
-        <div class="chart-wrap"><canvas id="chart-monthly-distance"></canvas></div>
-      </div>
-      <div class="grid cols-3" id="pb-tiles" style="margin-top:16px;"></div>
-      <div class="card" style="margin-top:16px;">
-        <div class="label" style="font-size:12px; color:var(--ink-muted); margin-bottom:10px;">
-          Race time estimates
-          <span class="method">?<span class="tooltip">Riegel's formula: T2 = T1 × (D2/D1)^1.06, extrapolated from your longest personal best. Always an estimate, not a guarantee.</span></span>
-        </div>
-        <table class="data-table" id="race-predictions-table"></table>
-      </div>
+    <div class="range-switcher" id="range-switcher">
+      <button data-range="7d">Last 7 days</button>
+      <button data-range="4w">Last 4 weeks</button>
+      <button data-range="3m">Last 3 months</button>
+      <button data-range="1y">Last year</button>
+      <button data-range="all">All time</button>
+    </div>
+
+    <!-- ========== AT A GLANCE: answers the three questions up top ========== -->
+    <section class="block" id="section-glance">
+      <div class="grid cols-3" id="glance-grid"></div>
     </section>
 
-    <section class="block" id="section-efficiency">
-      <h2>Aerobic efficiency</h2>
-      <div class="card chart-card">
+    <!-- ========== Q1: How am I progressing? ========== -->
+    <section class="block" id="section-progress">
+      <h2>How am I progressing?</h2>
+      <div class="grid cols-3" id="progress-tiles"></div>
+
+      <div class="card chart-card" style="margin-top:16px;">
         <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
-          Monthly pace at reference heart rate
-          <span class="method">?<span class="tooltip">Each month, a least-squares line is fit to pace vs. average heart rate across that month's runs (minimum 8 runs), then read at your reference heart rate. A falling line means more speed for the same effort.</span></span>
+          Weekly distance
+          <span class="method">?<span class="tooltip">Sum of running distance per ISO calendar week (Monday–Sunday) within the selected range. Marked points are activities you've tagged as a race.</span></span>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-weekly-distance"></canvas></div>
+      </div>
+
+      <div class="card chart-card" style="margin-top:16px;">
+        <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
+          Pace trend
+          <span class="method">?<span class="tooltip">Weekly average pace (total distance ÷ total moving time that week), plus a trailing 4-week rolling average to smooth out single noisy weeks.</span></span>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-pace-trend"></canvas></div>
+      </div>
+
+      <div class="card chart-card" style="margin-top:16px;">
+        <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
+          Aerobic efficiency (pace at reference heart rate)
+          <span class="method">?<span class="tooltip">Each week, a least-squares line is fit to pace vs. average heart rate across the trailing 8 weeks of runs (minimum 8 qualifying runs), then read at your reference heart rate. A falling line means more speed for the same effort.</span></span>
         </div>
         <div class="chart-wrap"><canvas id="chart-efficiency"></canvas></div>
       </div>
-    </section>
 
-    <section class="block" id="section-load">
-      <h2>Load &amp; distribution</h2>
-      <div class="grid cols-2">
-        <div class="card chart-card">
-          <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
-            Weekly volume (km)
-            <span class="method">?<span class="tooltip">Sum of running distance per ISO calendar week (Monday–Sunday).</span></span>
-          </div>
-          <div class="chart-wrap"><canvas id="chart-weekly-volume"></canvas></div>
+      <div class="card chart-card" style="margin-top:16px;">
+        <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
+          Personal-bests timeline
+          <span class="method">?<span class="tooltip">Every time a whole-activity 5K/10K/half-marathon best was improved, across your entire history (not limited by the range switcher above).</span></span>
         </div>
-        <div class="card chart-card">
-          <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
-            Time in heart-rate zone
-            <span class="method">?<span class="tooltip">Share of total zone-tagged minutes across all running activities where Garmin provided per-zone time. Activities without zone data aren't counted in the denominator.</span></span>
-          </div>
-          <div class="chart-wrap" id="hr-zone-wrap"><canvas id="chart-hr-zones"></canvas></div>
+        <div class="chart-wrap"><canvas id="chart-pb-timeline"></canvas></div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <div class="label" style="font-size:12px; color:var(--ink-muted); margin-bottom:10px;">
+          Race time estimates (all-time personal bests)
+          <span class="method">?<span class="tooltip">Riegel's formula: T2 = T1 × (D2/D1)^1.06, extrapolated from your longest all-time personal best. Always an estimate, not a guarantee.</span></span>
         </div>
+        <table class="data-table" id="race-predictions-table"></table>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <div class="label" style="font-size:12px; color:var(--ink-muted); margin-bottom:10px;">Tag a race</div>
+        <p class="hint">Mark any activity as a race so it's annotated on the charts above.</p>
+        <div class="race-tag-list" id="race-tag-list"></div>
       </div>
     </section>
 
-    <section class="block" id="section-recovery">
-      <h2>Recovery <span class="method">?<span class="tooltip">Your most recent 7 days compared to your own trailing 28-day baseline (the 28 days before that week). Garmin data only.</span></span></h2>
-      <div class="grid cols-2" id="recovery-tiles"></div>
+    <!-- ========== Q2: Where am I in my training? ========== -->
+    <section class="block" id="section-standing">
+      <h2>Where am I in my training?</h2>
+
+      <div class="card" id="standing-status" style="margin-bottom:16px;"></div>
+
+      <div class="grid cols-3" id="standing-tiles"></div>
+
+      <div class="grid cols-2" style="margin-top:16px;">
+        <div class="card" id="standing-volume"></div>
+        <div class="card" id="standing-consistency"></div>
+      </div>
+
+      <div class="card chart-card" style="margin-top:16px;">
+        <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
+          Long-run progression
+          <span class="method">?<span class="tooltip">The single longest run per calendar week, over the last 12 weeks.</span></span>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-long-run"></canvas></div>
+      </div>
+
+      <div class="grid cols-2" id="standing-recovery" style="margin-top:16px;"></div>
+    </section>
+
+    <!-- ========== Q3: What should I do next? ========== -->
+    <section class="block" id="section-recommendations">
+      <h2>What should I do next?</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div class="sub" id="recs-generated-at" style="color:var(--ink-muted); font-size:12px;"></div>
+        <button id="generate-recs-btn">Regenerate</button>
+      </div>
+      <div id="recs-list"></div>
+    </section>
+
+    <!-- ========== details below ========== -->
+    <section class="block" id="section-load">
+      <h2>Effort distribution</h2>
+      <div class="card chart-card">
+        <div class="label" style="padding:16px 0 0 2px; font-size:12px; color:var(--ink-muted); display:flex; align-items:center; gap:6px;">
+          Time in heart-rate zone
+          <span class="method">?<span class="tooltip">Share of total zone-tagged minutes across all running activities where Garmin provided per-zone time. Activities without zone data aren't counted in the denominator.</span></span>
+        </div>
+        <div class="chart-wrap" id="hr-zone-wrap"><canvas id="chart-hr-zones"></canvas></div>
+      </div>
     </section>
 
     <section class="block" id="section-patterns">
       <h2>Your patterns</h2>
       <div id="patterns-cycle"></div>
       <div class="card" id="patterns-conditions" style="margin-top:14px;"></div>
-    </section>
-
-    <section class="block" id="section-recommendations">
-      <h2>Recommendations</h2>
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <div class="sub" id="recs-generated-at" style="color:var(--ink-muted); font-size:12px;"></div>
-        <button id="generate-recs-btn">Regenerate</button>
-      </div>
-      <div id="recs-list"></div>
     </section>
 
     <section class="block" id="section-gaps">

@@ -14,11 +14,14 @@ from __future__ import annotations
 from run_coach.metrics.common import (
     MIN_SAMPLE_SIZE,
     is_running,
+    iso_week_key,
     local_date_of,
     month_key,
 )
+from run_coach.metrics.ranges import filter_by_bounds, range_bounds
 
 DEFAULT_REFERENCE_HR = 150.0
+TREND_ROLLING_WEEKS = 8
 
 
 def _least_squares(xs: list[float], ys: list[float]) -> tuple[float, float] | None:
@@ -68,3 +71,66 @@ def monthly_pace_at_hr(activities: list, reference_hr: float = DEFAULT_REFERENCE
             }
         )
     return out
+
+
+def pace_at_hr_trend(
+    activities: list,
+    range_key: str,
+    as_of=None,
+    reference_hr: float = DEFAULT_REFERENCE_HR,
+    rolling_weeks: int = TREND_ROLLING_WEEKS,
+) -> list[dict]:
+    """A weekly pace-at-reference-HR trend for the selected range.
+
+    Method: each week's point is fit from all qualifying runs in a trailing
+    `rolling_weeks`-week window ending that week (not just that single
+    week), because a week alone rarely has MIN_SAMPLE_SIZE runs. A week
+    whose rolling window still doesn't have enough runs shows "not enough
+    data yet" instead of a fitted value.
+    """
+    start, end = range_bounds(range_key, as_of)
+    runs = [
+        a
+        for a in activities
+        if is_running(a["activity_type"]) and a["avg_pace_s_per_km"] and a["avg_hr"]
+    ]
+    in_range = filter_by_bounds(runs, start, end)
+    if not in_range:
+        return []
+
+    weeks_present = sorted({iso_week_key(local_date_of(r)) for r in in_range})
+    out = []
+    for key in weeks_present:
+        # ISO week keys sort lexicographically in date order within a range this short.
+        window_runs = [
+            r
+            for r in runs
+            if iso_week_key(local_date_of(r)) <= key
+            and _weeks_between(iso_week_key(local_date_of(r)), key) < rolling_weeks
+        ]
+        n = len(window_runs)
+        if n < MIN_SAMPLE_SIZE:
+            out.append({"week": key, "n": n, "pace_at_reference_hr_s_per_km": None, "reason": "not enough data yet"})
+            continue
+        fit = _least_squares([r["avg_hr"] for r in window_runs], [r["avg_pace_s_per_km"] for r in window_runs])
+        if fit is None:
+            out.append({"week": key, "n": n, "pace_at_reference_hr_s_per_km": None, "reason": "no heart-rate variation to fit"})
+            continue
+        slope, intercept = fit
+        out.append(
+            {
+                "week": key,
+                "n": n,
+                "pace_at_reference_hr_s_per_km": round(slope * reference_hr + intercept, 1),
+                "reference_hr": reference_hr,
+            }
+        )
+    return out
+
+
+def _weeks_between(week_a: str, week_b: str) -> int:
+    """Approximate week distance between two "YYYY-Www" keys (good enough
+    for a rolling-window cutoff; a year boundary is off by at most 1 week)."""
+    ya, wa = int(week_a[:4]), int(week_a[6:])
+    yb, wb = int(week_b[:4]), int(week_b[6:])
+    return (yb - ya) * 52 + (wb - wa)

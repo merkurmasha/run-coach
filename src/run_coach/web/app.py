@@ -119,6 +119,83 @@ def create_app(demo: bool = False) -> FastAPI:
         finally:
             conn.close()
 
+    @app.get("/api/progress")
+    def progress(range: str = "4w") -> dict:
+        from run_coach.metrics.efficiency import DEFAULT_REFERENCE_HR, pace_at_hr_trend
+        from run_coach.metrics.progress import (
+            pace_trend_series,
+            personal_bests,
+            personal_bests_timeline,
+            race_markers,
+            race_time_predictions,
+            range_progress,
+            weekly_distance_series,
+        )
+        from run_coach.metrics.ranges import RANGE_DAYS
+        from run_coach.storage.db import all_activities, all_settings
+
+        range_key = range if range in RANGE_DAYS else "4w"
+        conn = get_conn()
+        try:
+            activities = all_activities(conn)
+            settings = all_settings(conn)
+            pbs = personal_bests(activities)
+            reference_hr = settings.get("reference_hr") or DEFAULT_REFERENCE_HR
+            return {
+                "range": range_key,
+                "range_progress": range_progress(activities, range_key),
+                "weekly_distance": weekly_distance_series(activities, range_key),
+                "pace_trend": pace_trend_series(activities, range_key),
+                "pace_at_hr_trend": pace_at_hr_trend(activities, range_key, reference_hr=reference_hr),
+                "personal_bests_timeline": personal_bests_timeline(activities),
+                "race_markers": race_markers(activities, range_key=range_key),
+                "race_predictions": race_time_predictions(pbs),
+            }
+        finally:
+            conn.close()
+
+    @app.get("/api/activities")
+    def list_activities(range: str = "all") -> dict:
+        from run_coach.metrics.ranges import RANGE_DAYS, filter_by_bounds, range_bounds
+        from run_coach.storage.db import all_activities
+
+        range_key = range if range in RANGE_DAYS else "all"
+        conn = get_conn()
+        try:
+            activities = all_activities(conn)
+        finally:
+            conn.close()
+        start, end = range_bounds(range_key)
+        rows = filter_by_bounds(activities, start, end)
+        return {
+            "activities": [
+                {
+                    "id": r["id"],
+                    "date": r["local_date"],
+                    "activity_type": r["activity_type"],
+                    "distance_km": round((r["distance_m"] or 0.0) / 1000.0, 1),
+                    "is_race": bool(r["is_race"]),
+                }
+                for r in sorted(rows, key=lambda r: r["local_date"], reverse=True)
+            ]
+        }
+
+    @app.post("/api/activities/{activity_id}/race")
+    def tag_race(activity_id: str, payload: dict[str, bool]) -> dict:
+        if demo:
+            raise HTTPException(400, "Demo mode's activities are read-only.")
+        from run_coach.storage.db import set_activity_race
+
+        conn = get_conn()
+        try:
+            found = set_activity_race(conn, activity_id, payload.get("is_race", False))
+            conn.commit()
+        finally:
+            conn.close()
+        if not found:
+            raise HTTPException(404, f"No activity with id {activity_id!r}.")
+        return {"ok": True}
+
     @app.get("/api/recommendations")
     def recommendations() -> dict:
         conn = get_conn()

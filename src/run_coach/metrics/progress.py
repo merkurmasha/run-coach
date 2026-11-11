@@ -13,7 +13,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from run_coach.metrics.common import is_running, local_date_of, month_key, pace_str
+from run_coach.metrics.common import (
+    is_running,
+    iso_week_key,
+    local_date_of,
+    month_key,
+    pace_str,
+)
+from run_coach.metrics.ranges import (
+    filter_by_bounds,
+    previous_period_bounds,
+    range_bounds,
+)
 
 RIEGEL_EXPONENT = 1.06
 
@@ -118,3 +129,133 @@ def race_time_predictions(pbs: dict[str, PersonalBest | None]) -> dict[str, dict
             "source": source.distance_label,
         }
     return predictions
+
+
+def _period_summary(runs: list) -> dict:
+    distance_m = sum(r["distance_m"] or 0.0 for r in runs)
+    moving_time_s = sum(r["moving_time_s"] or 0.0 for r in runs)
+    longest_m = max((r["distance_m"] or 0.0 for r in runs), default=0.0)
+    return {
+        "distance_km": round(distance_m / 1000.0, 1),
+        "runs": len(runs),
+        "avg_pace_s_per_km": round(moving_time_s / (distance_m / 1000.0), 1) if distance_m else None,
+        "longest_run_km": round(longest_m / 1000.0, 1),
+    }
+
+
+def range_progress(activities: list, range_key: str, as_of=None) -> dict:
+    """Headline progress numbers for the selected range, plus the delta
+    against the immediately preceding, equal-length period ("all" has no
+    previous period, so delta is None there)."""
+    runs = [a for a in activities if is_running(a["activity_type"])]
+    start, end = range_bounds(range_key, as_of)
+    current_summary = _period_summary(filter_by_bounds(runs, start, end))
+
+    previous_bounds = previous_period_bounds(range_key, as_of)
+    if previous_bounds is None:
+        return {"current": current_summary, "previous": None, "delta": None}
+
+    previous_summary = _period_summary(filter_by_bounds(runs, previous_bounds[0], previous_bounds[1]))
+    delta = {
+        key: round(current_summary[key] - previous_summary[key], 1)
+        for key in ("distance_km", "runs", "longest_run_km")
+    }
+    if current_summary["avg_pace_s_per_km"] is not None and previous_summary["avg_pace_s_per_km"] is not None:
+        delta["avg_pace_s_per_km"] = round(
+            current_summary["avg_pace_s_per_km"] - previous_summary["avg_pace_s_per_km"], 1
+        )
+    else:
+        delta["avg_pace_s_per_km"] = None
+
+    return {"current": current_summary, "previous": previous_summary, "delta": delta}
+
+
+def weekly_distance_series(activities: list, range_key: str, as_of=None) -> list[dict]:
+    """Weekly distance within the selected range, for the progress chart."""
+    start, end = range_bounds(range_key, as_of)
+    runs = filter_by_bounds([a for a in activities if is_running(a["activity_type"])], start, end)
+    weeks: dict[str, float] = {}
+    for row in runs:
+        key = iso_week_key(local_date_of(row))
+        weeks[key] = weeks.get(key, 0.0) + (row["distance_m"] or 0.0)
+    return [{"week": key, "distance_km": round(weeks[key] / 1000.0, 1)} for key in sorted(weeks)]
+
+
+def pace_trend_series(activities: list, range_key: str, as_of=None, rolling_window: int = 4) -> list[dict]:
+    """Weekly average pace within the range, plus a trailing N-week rolling
+    average (default 4 weeks) to smooth out single noisy weeks."""
+    start, end = range_bounds(range_key, as_of)
+    runs = filter_by_bounds(
+        [a for a in activities if is_running(a["activity_type"]) and a["distance_m"] and a["moving_time_s"]],
+        start,
+        end,
+    )
+    weeks: dict[str, dict] = {}
+    for row in runs:
+        key = iso_week_key(local_date_of(row))
+        bucket = weeks.setdefault(key, {"distance_m": 0.0, "moving_time_s": 0.0})
+        bucket["distance_m"] += row["distance_m"]
+        bucket["moving_time_s"] += row["moving_time_s"]
+
+    ordered_keys = sorted(weeks)
+    paces = [
+        (weeks[key]["moving_time_s"] / (weeks[key]["distance_m"] / 1000.0)) if weeks[key]["distance_m"] else None
+        for key in ordered_keys
+    ]
+
+    out = []
+    for i, key in enumerate(ordered_keys):
+        window = [p for p in paces[max(0, i - rolling_window + 1) : i + 1] if p is not None]
+        rolling = round(sum(window) / len(window), 1) if window else None
+        out.append(
+            {
+                "week": key,
+                "avg_pace_s_per_km": round(paces[i], 1) if paces[i] is not None else None,
+                "rolling_avg_pace_s_per_km": rolling,
+            }
+        )
+    return out
+
+
+def personal_bests_timeline(activities: list) -> list[dict]:
+    """Every time a new personal best was set, in chronological order --
+    one event per improvement, for the PB timeline chart."""
+    runs = [a for a in activities if is_running(a["activity_type"]) and a["distance_m"] and a["moving_time_s"]]
+    events = []
+    for label, (target_m, lo_frac, hi_frac) in PB_TARGETS.items():
+        candidates = sorted(
+            (r for r in runs if target_m * lo_frac <= r["distance_m"] <= target_m * hi_frac),
+            key=lambda r: r["local_date"],
+        )
+        best_time = None
+        for r in candidates:
+            if best_time is None or r["moving_time_s"] < best_time:
+                best_time = r["moving_time_s"]
+                events.append(
+                    {
+                        "distance_label": label,
+                        "date": r["local_date"],
+                        "moving_time_s": r["moving_time_s"],
+                        "pace_s_per_km": round(r["moving_time_s"] / (r["distance_m"] / 1000.0), 1),
+                    }
+                )
+    events.sort(key=lambda e: e["date"])
+    return events
+
+
+def race_markers(activities: list, range_key: str | None = None, as_of=None) -> list[dict]:
+    """Activities tagged as a race, for annotating the progress charts."""
+    races = [a for a in activities if a["is_race"]]
+    if range_key is not None:
+        start, end = range_bounds(range_key, as_of)
+        races = filter_by_bounds(races, start, end)
+    return [
+        {
+            "id": r["id"],
+            "date": r["local_date"],
+            "activity_type": r["activity_type"],
+            "distance_km": round((r["distance_m"] or 0.0) / 1000.0, 1),
+            "pace_s_per_km": r["avg_pace_s_per_km"],
+        }
+        for r in sorted(races, key=lambda r: r["local_date"])
+    ]

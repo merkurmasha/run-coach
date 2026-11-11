@@ -1,6 +1,12 @@
-"""Synthetic data for --demo: a plausible 9-month training history with no
+"""Synthetic data for --demo: a plausible one-year training history with no
 real keys and no personal data, so the dashboard can be tried (and
 screenshotted) without a Garmin account.
+
+Deliberately includes, so every dashboard view has something to show:
+- a slow, steady pace/efficiency improvement across the year
+- one tagged race (a 10K effort, clearly faster than the surrounding runs)
+- a multi-week gap with no runs at all (a "skipped-run" stretch), to
+  populate the consistency and volume-spike-on-return views
 """
 
 from __future__ import annotations
@@ -12,6 +18,7 @@ from datetime import date, timedelta
 from run_coach.metrics.aggregate import build_stats
 from run_coach.storage.db import (
     Activity,
+    set_activity_race,
     set_cached_recommendations,
     set_setting,
     upsert_activity,
@@ -56,47 +63,89 @@ DEMO_RECOMMENDATIONS = [
 
 DEMO_SEED = 20261109
 
+# A 2.5-week stretch with no runs at all, placed roughly 7 months in --
+# long enough to show up as a consistency gap and a volume spike on return.
+GAP_START_DAYS_AGO = 210
+GAP_LENGTH_DAYS = 18
 
-def generate_demo_data(conn: sqlite3.Connection, days: int = 270) -> None:
+# A single tagged race: a 10K, noticeably faster than the surrounding
+# training pace, placed about 4 months ago.
+RACE_DAYS_AGO = 120
+
+
+def generate_demo_data(conn: sqlite3.Connection, days: int = 365) -> None:
     rng = random.Random(DEMO_SEED)
     today = date.today()
     start = today - timedelta(days=days)
 
-    base_pace = 330.0  # 5:30/km, improves slowly over the period
+    base_pace = 335.0  # 5:35/km, improves slowly over the year
     activity_counter = 0
+    gap_start = today - timedelta(days=GAP_START_DAYS_AGO)
+    gap_end = gap_start + timedelta(days=GAP_LENGTH_DAYS)
+    race_day = today - timedelta(days=RACE_DAYS_AGO)
+    race_activity_id: str | None = None
 
     day = start
     while day <= today:
-        # ~4 runs/week, skip some days, long run on Sundays
-        is_long_run_day = day.weekday() == 6
-        runs_this_week_chance = 0.6 if not is_long_run_day else 0.85
-        if rng.random() < runs_this_week_chance:
-            progress_fraction = (day - start).days / max(days, 1)
-            pace = base_pace - 25 * progress_fraction + rng.uniform(-15, 15)
-            distance_km = rng.uniform(9, 16) if is_long_run_day else rng.uniform(4, 9)
-            distance_m = distance_km * 1000
-            moving_time_s = pace * distance_km
-            avg_hr = 150 + rng.uniform(-8, 10) - 10 * progress_fraction
+        in_gap = gap_start <= day <= gap_end
+        progress_fraction = (day - start).days / max(days, 1)
+
+        if day == race_day:
+            # A 10K race effort: clearly faster than the surrounding training pace.
+            race_pace = (base_pace - 25 * progress_fraction) * 0.88
+            distance_km = 10.0
+            moving_time_s = race_pace * distance_km
             activity_counter += 1
+            race_activity_id = f"demo-{activity_counter}"
             upsert_activity(
                 conn,
                 Activity(
                     source="garmin",
-                    external_id=f"demo-{activity_counter}",
-                    start_time_utc=f"{day.isoformat()}T06:30:00Z",
+                    external_id=race_activity_id,
+                    start_time_utc=f"{day.isoformat()}T08:00:00Z",
                     local_date=day.isoformat(),
                     activity_type="running",
-                    distance_m=round(distance_m, 1),
+                    distance_m=distance_km * 1000,
                     moving_time_s=round(moving_time_s, 1),
-                    elapsed_time_s=round(moving_time_s + rng.uniform(20, 90), 1),
-                    avg_hr=round(avg_hr, 1),
-                    max_hr=round(avg_hr + rng.uniform(15, 25), 1),
+                    elapsed_time_s=round(moving_time_s + 15, 1),
+                    avg_hr=round(168 + rng.uniform(-3, 3), 1),
+                    max_hr=round(182 + rng.uniform(-3, 3), 1),
                     avg_pace_s_per_km=round(moving_time_s / distance_km, 1),
-                    elevation_gain_m=round(rng.uniform(10, 120), 1),
-                    calories=round(distance_km * 65, 1),
-                    hr_zone_minutes=_synthetic_zones(rng, moving_time_s),
+                    elevation_gain_m=round(rng.uniform(20, 60), 1),
+                    calories=round(distance_km * 70, 1),
+                    hr_zone_minutes=_synthetic_zones(rng, moving_time_s, race=True),
                 ),
             )
+        elif not in_gap:
+            # ~4-5 runs/week, skip some days, long run on Sundays.
+            is_long_run_day = day.weekday() == 6
+            run_chance = 0.6 if not is_long_run_day else 0.85
+            if rng.random() < run_chance:
+                pace = base_pace - 25 * progress_fraction + rng.uniform(-15, 15)
+                distance_km = rng.uniform(9, 17) if is_long_run_day else rng.uniform(4, 9)
+                distance_m = distance_km * 1000
+                moving_time_s = pace * distance_km
+                avg_hr = 150 + rng.uniform(-8, 10) - 10 * progress_fraction
+                activity_counter += 1
+                upsert_activity(
+                    conn,
+                    Activity(
+                        source="garmin",
+                        external_id=f"demo-{activity_counter}",
+                        start_time_utc=f"{day.isoformat()}T06:30:00Z",
+                        local_date=day.isoformat(),
+                        activity_type="running",
+                        distance_m=round(distance_m, 1),
+                        moving_time_s=round(moving_time_s, 1),
+                        elapsed_time_s=round(moving_time_s + rng.uniform(20, 90), 1),
+                        avg_hr=round(avg_hr, 1),
+                        max_hr=round(avg_hr + rng.uniform(15, 25), 1),
+                        avg_pace_s_per_km=round(moving_time_s / distance_km, 1),
+                        elevation_gain_m=round(rng.uniform(10, 120), 1),
+                        calories=round(distance_km * 65, 1),
+                        hr_zone_minutes=_synthetic_zones(rng, moving_time_s),
+                    ),
+                )
 
         upsert_daily_metric(
             conn,
@@ -110,6 +159,9 @@ def generate_demo_data(conn: sqlite3.Connection, days: int = 270) -> None:
             stress_avg=rng.uniform(15, 45),
         )
         day += timedelta(days=1)
+
+    if race_activity_id is not None:
+        set_activity_race(conn, f"garmin:{race_activity_id}", True)
 
     # A synthetic 28-day cycle history for the patterns section.
     cycle_day = start
@@ -131,8 +183,12 @@ def generate_demo_data(conn: sqlite3.Connection, days: int = 270) -> None:
     set_cached_recommendations(conn, stats, DEMO_RECOMMENDATIONS)
 
 
-def _synthetic_zones(rng: random.Random, moving_time_s: float) -> dict[int, float]:
+def _synthetic_zones(rng: random.Random, moving_time_s: float, race: bool = False) -> dict[int, float]:
     minutes = moving_time_s / 60.0
-    weights = [rng.uniform(0.5, 1.5) for _ in range(5)]
+    if race:
+        # A race effort skews hard into the top zones, unlike easy training runs.
+        weights = [0.05, 0.1, 0.2, 0.3, 0.35]
+    else:
+        weights = [rng.uniform(0.5, 1.5) for _ in range(5)]
     total_weight = sum(weights)
     return {zone: round(minutes * w / total_weight, 1) for zone, w in enumerate(weights, start=1)}

@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS activities (
     avg_pace_s_per_km REAL,
     elevation_gain_m REAL,
     calories REAL,
+    is_race INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_activities_start ON activities(start_time_utc);
@@ -90,9 +91,21 @@ def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after a database already existed.
+
+    CREATE TABLE IF NOT EXISTS leaves an older table's columns untouched,
+    so a column added later needs an explicit, idempotent ALTER TABLE here.
+    """
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(activities)")}
+    if "is_race" not in columns:
+        conn.execute("ALTER TABLE activities ADD COLUMN is_race INTEGER NOT NULL DEFAULT 0")
+
+
 def init_db(db_path: Path = DB_PATH) -> None:
     with contextlib.closing(connect(db_path)) as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.commit()
 
 
@@ -250,6 +263,14 @@ def upsert_cycle_entry(
         """,
         (start_date, cycle_length_days, source),
     )
+
+
+def set_activity_race(conn: sqlite3.Connection, activity_id: str, is_race: bool) -> bool:
+    """Mark/unmark an activity as a race. Returns False if the id doesn't exist."""
+    cursor = conn.execute(
+        "UPDATE activities SET is_race = ? WHERE id = ?", (1 if is_race else 0, activity_id)
+    )
+    return cursor.rowcount > 0
 
 
 def get_setting(conn: sqlite3.Connection, key: str, default=None):

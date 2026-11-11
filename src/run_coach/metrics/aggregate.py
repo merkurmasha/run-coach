@@ -16,6 +16,7 @@ from run_coach.metrics.progress import (
     race_time_predictions,
 )
 from run_coach.metrics.recovery import recovery_summary
+from run_coach.metrics.standing import training_standing
 from run_coach.storage.db import (
     all_activities,
     all_cycle_entries,
@@ -69,6 +70,7 @@ def build_stats(conn: sqlite3.Connection) -> dict:
             "cycle_phase": cycle_phase_patterns(activities, cycle_entries),
             "special_conditions": settings.get("special_conditions_text"),
         },
+        "standing": training_standing(activities, daily_metrics, settings),
         "goals": {
             "target_pace_s_per_km": settings.get("target_pace_s_per_km"),
             "race_distance_m": settings.get("race_distance_m"),

@@ -8,6 +8,7 @@ from run_coach.storage.db import (
     get_setting,
     init_db,
     latest_data_gaps,
+    set_activity_race,
     set_setting,
     upsert_activity,
     upsert_daily_metric,
@@ -83,6 +84,44 @@ def test_settings_roundtrip(tmp_path):
     assert get_setting(conn, "follows_watch_plan") is True
     assert get_setting(conn, "missing_key", default="fallback") == "fallback"
     conn.close()
+
+
+def test_activity_defaults_to_not_a_race_and_can_be_tagged(tmp_path):
+    db_path = tmp_path / "test.db"
+    init_db(db_path)
+    conn = connect(db_path)
+    activity = Activity(
+        source="garmin", external_id="1", start_time_utc="2026-01-01T06:00:00Z", local_date="2026-01-01",
+        activity_type="running", distance_m=5000.0, moving_time_s=1500.0, elapsed_time_s=1550.0,
+        avg_hr=150.0, max_hr=170.0, avg_pace_s_per_km=300.0, elevation_gain_m=20.0, calories=400.0,
+    )
+    upsert_activity(conn, activity)
+    conn.commit()
+    assert all_activities(conn)[0]["is_race"] == 0
+
+    assert set_activity_race(conn, "garmin:1", True) is True
+    conn.commit()
+    assert all_activities(conn)[0]["is_race"] == 1
+
+    assert set_activity_race(conn, "garmin:does-not-exist", True) is False
+
+
+def test_resyncing_an_activity_does_not_clear_its_race_tag(tmp_path):
+    db_path = tmp_path / "test.db"
+    init_db(db_path)
+    conn = connect(db_path)
+    activity = Activity(
+        source="garmin", external_id="1", start_time_utc="2026-01-01T06:00:00Z", local_date="2026-01-01",
+        activity_type="running", distance_m=5000.0, moving_time_s=1500.0, elapsed_time_s=1550.0,
+        avg_hr=150.0, max_hr=170.0, avg_pace_s_per_km=300.0, elevation_gain_m=20.0, calories=400.0,
+    )
+    upsert_activity(conn, activity)
+    set_activity_race(conn, "garmin:1", True)
+    conn.commit()
+
+    upsert_activity(conn, activity)  # a re-sync, e.g. re-running `sync`
+    conn.commit()
+    assert all_activities(conn)[0]["is_race"] == 1
 
 
 def test_sync_log_dedups_gaps_across_runs(tmp_path):

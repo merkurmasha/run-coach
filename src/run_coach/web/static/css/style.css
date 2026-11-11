@@ -347,5 +347,105 @@ table.data-table th {
   margin-top: 60px;
 }
 
+/* ---------- range switcher ---------- */
+.range-switcher {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 28px;
+  flex-wrap: wrap;
+}
+
+.range-switcher button {
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 6px 14px;
+}
+
+.range-switcher button.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
+/* ---------- at-a-glance (top of page) ---------- */
+.glance-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.glance-card .glance-title {
+  font-size: 12px;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.glance-card .glance-headline {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.glance-card .glance-detail {
+  font-size: 13px;
+  color: var(--ink-secondary);
+}
+
+.delta {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.delta.up { color: var(--good); }
+.delta.down { color: var(--critical); }
+.delta.flat { color: var(--ink-muted); }
+
+/* ---------- status badge (ahead / on_track / behind) ---------- */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 999px;
+  text-transform: capitalize;
+}
+
+.status-badge.ahead { background: rgba(12, 163, 12, 0.15); color: var(--good); }
+.status-badge.on_track { background: rgba(42, 120, 214, 0.15); color: var(--s1); }
+.status-badge.behind { background: rgba(250, 178, 25, 0.18); color: var(--warning); }
+.status-badge.no_goal_set { background: rgba(137, 135, 129, 0.2); color: var(--ink-secondary); }
+
+.status-rule {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin-top: 8px;
+}
+
+/* ---------- race tagging ---------- */
+.race-tag-list {
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+.race-tag-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hairline);
+  gap: 10px;
+}
+
+.race-tag-row .race-tag-meta { color: var(--ink-muted); font-size: 12px; }
+
+.spike-flag {
+  color: var(--warning);
+  font-weight: 600;
+}
+
 .pattern-grid { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 720px) { .pattern-grid { grid-template-columns: repeat(2, 1fr); } }
