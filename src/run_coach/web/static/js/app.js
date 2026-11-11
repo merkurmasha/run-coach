@@ -689,7 +689,8 @@
     const range = report.date_range ? `${report.date_range.start} to ${report.date_range.end}` : "—";
     const rows = [
       ["Rows read", c.rows_read],
-      ["Imported", c.imported],
+      ["Runs imported", c.runs_imported],
+      ["Other activities imported", c.other_imported],
       ["Duplicates of Garmin (skipped)", c.skipped_duplicate_of_garmin],
       ["Skipped (missing id/date)", c.skipped_missing_fields],
       ["Skipped (unparseable date)", c.skipped_unparseable_date],

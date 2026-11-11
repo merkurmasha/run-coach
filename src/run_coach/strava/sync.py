@@ -10,12 +10,16 @@ run.
 from __future__ import annotations
 
 import csv
+import re
 import sqlite3
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from run_coach.metrics.common import is_running
 from run_coach.storage.db import Activity, find_activity_near, upsert_activity
 from run_coach.strava.importer import FIELD_CANDIDATES, inspect_header, parse_strava_csv
+
+_UNPARSEABLE_DATE_COUNT_RE = re.compile(r"^strava: (\d+) row\(s\) skipped — unrecognized date format")
 
 DEDUP_TOLERANCE_MINUTES = 5
 
@@ -42,7 +46,11 @@ def import_strava_csv(
 
     activities, gaps = parse_strava_csv(path, column_overrides=column_overrides)
 
-    unparseable_dates = sum(1 for g in gaps if "unrecognized date format" in g)
+    unparseable_dates = 0
+    for g in gaps:
+        m = _UNPARSEABLE_DATE_COUNT_RE.match(g)
+        if m:
+            unparseable_dates += int(m.group(1))
     skipped_missing_fields = max(0, rows_read - len(activities) - unparseable_dates)
 
     tz = None
@@ -54,7 +62,8 @@ def import_strava_csv(
     if tz is None:
         gaps.append("strava: no timezone configured, treating activity local times as UTC (may be off by hours)")
 
-    imported = 0
+    runs_imported = 0
+    other_imported = 0
     skipped_duplicate_of_garmin = 0
     updated = 0
 
@@ -92,7 +101,10 @@ def import_strava_csv(
                 calories=activity.calories,
             ),
         )
-        imported += 1
+        if is_running(activity.activity_type):
+            runs_imported += 1
+        else:
+            other_imported += 1
 
     if activities:
         dates = sorted(a.start_time_local.date().isoformat() for a in activities)
@@ -103,7 +115,9 @@ def import_strava_csv(
     return {
         "counts": {
             "rows_read": rows_read,
-            "imported": imported,
+            "imported": runs_imported + other_imported,
+            "runs_imported": runs_imported,
+            "other_imported": other_imported,
             "updated": updated,
             "skipped_duplicate_of_garmin": skipped_duplicate_of_garmin,
             "skipped_unparseable_date": unparseable_dates,
