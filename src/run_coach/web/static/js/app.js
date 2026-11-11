@@ -107,8 +107,8 @@
     lastStravaImport: () => asJson(fetch("/api/strava/last-import")),
     progress: (range) => asJson(fetch(`/api/progress?range=${encodeURIComponent(range)}`)),
     activities: (range) => asJson(fetch(`/api/activities?range=${encodeURIComponent(range)}`)),
-    setRace: (activityId, isRace) =>
-      asJson(fetch(`/api/activities/${encodeURIComponent(activityId)}/race`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_race: isRace }) })),
+    setRace: (activityId, isRace, raceName) =>
+      asJson(fetch(`/api/activities/${encodeURIComponent(activityId)}/race`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_race: isRace, race_name: raceName || null }) })),
   };
 
   const RANGE_LABELS = { "7d": "last 7 days", "4w": "last 4 weeks", "3m": "last 3 months", "1y": "last year", all: "all time" };
@@ -349,10 +349,16 @@
     const raceWeeks = new Map(raceMarkers.map((r) => [isoWeekKey(r.date), r]));
     const data = weekLabels.map((w, i) => (raceWeeks.has(w) ? valueByWeek[i] : null));
     if (data.every((v) => v == null)) return null;
+    // Carried on the dataset (not part of the Chart.js data contract) so
+    // the shared tooltip's afterLabel callback can show which race this
+    // point is, by index -- without having to give every chart its own
+    // custom tooltip formatting.
+    const raceNames = weekLabels.map((w) => (raceWeeks.has(w) ? raceWeeks.get(w).name : null));
     return {
       type: "line",
       label: "Race",
       data,
+      raceNames,
       showLine: false,
       pointStyle: "star",
       pointRadius: 9,
@@ -469,41 +475,79 @@
       }).join("");
   }
 
-  async function renderRaceTagList(range) {
+  const RACE_TAG_LIST_SIZE = 20;
+  // The user's own known race date -- pinned to the top of the list below
+  // regardless of sort order, so it's never scrolled past.
+  const KNOWN_RACE_DATE = "2026-11-08";
+
+  async function renderRaceTagList() {
     const box = document.getElementById("race-tag-list");
     box.innerHTML = '<div class="not-enough-data">loading…</div>';
     let activities;
     try {
-      ({ activities } = await api.activities(range));
+      // Always the most recent activities overall, independent of the
+      // dashboard's range switcher above -- tagging a race from months
+      // ago shouldn't require first switching the whole page to "all time".
+      ({ activities } = await api.activities("all"));
     } catch (e) {
       box.innerHTML = `<div class="not-enough-data">couldn't load activities: ${escapeHtml(e.message)}</div>`;
       return;
     }
     if (activities.length === 0) {
-      box.innerHTML = '<div class="not-enough-data">no activities in this range</div>';
+      box.innerHTML = '<div class="not-enough-data">no activities yet</div>';
       return;
     }
+
+    let shortlist = activities.slice(0, RACE_TAG_LIST_SIZE);
+    const knownRace = activities.find((a) => a.date === KNOWN_RACE_DATE);
+    if (knownRace) {
+      shortlist = [knownRace, ...shortlist.filter((a) => a.id !== knownRace.id)].slice(0, RACE_TAG_LIST_SIZE);
+    }
+
     box.innerHTML = "";
-    for (const a of activities.slice(0, 60)) {
+    for (const a of shortlist) {
       const checkbox = el("input", { type: "checkbox" });
+      const nameInput = el("input", { type: "text", class: "race-name-input", placeholder: "Race name" });
+      nameInput.value = a.race_name || "";
+      nameInput.disabled = !a.is_race;
       if (a.is_race) checkbox.setAttribute("checked", "checked");
-      checkbox.addEventListener("change", async () => {
+
+      const commit = async () => {
         checkbox.disabled = true;
+        nameInput.disabled = true;
         try {
-          await api.setRace(a.id, checkbox.checked);
+          await api.setRace(a.id, checkbox.checked, checkbox.checked ? nameInput.value.trim() : null);
+          a.is_race = checkbox.checked;
+          a.race_name = checkbox.checked ? nameInput.value.trim() : null;
           await refreshProgress();
         } catch (e) {
           alert("Could not update race tag: " + e.message);
           checkbox.checked = !checkbox.checked;
         } finally {
           checkbox.disabled = false;
+          nameInput.disabled = !checkbox.checked;
         }
+      };
+
+      checkbox.addEventListener("change", () => {
+        nameInput.disabled = !checkbox.checked;
+        commit();
       });
+      nameInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") nameInput.blur();
+      });
+      nameInput.addEventListener("blur", () => {
+        if (checkbox.checked && nameInput.value.trim() !== (a.race_name || "")) commit();
+      });
+
+      const label = a.date === KNOWN_RACE_DATE ? `${a.date} 🏁 · ${a.activity_type || "activity"}` : `${a.date} · ${a.activity_type || "activity"}`;
       box.appendChild(
         el("div", { class: "race-tag-row" }, [
-          el("span", {}, [`${a.date} · ${a.activity_type || "activity"}`]),
+          el("span", {}, [label]),
           el("span", { class: "race-tag-meta" }, [`${a.distance_km} km`]),
+          el("span", { class: "race-tag-meta" }, [fmtTime(a.time_s)]),
           checkbox,
+          nameInput,
         ])
       );
     }
@@ -728,7 +772,19 @@
       maintainAspectRatio: false,
       plugins: {
         legend: { display: legend, labels: { color: css("--ink-secondary"), font: { size: 11 } } },
-        tooltip: { backgroundColor: css("--ink"), titleColor: css("--page"), bodyColor: css("--page"), padding: 10, cornerRadius: 6 },
+        tooltip: {
+          backgroundColor: css("--ink"), titleColor: css("--page"), bodyColor: css("--page"), padding: 10, cornerRadius: 6,
+          callbacks: {
+            // Adds a line rather than replacing the default one, so every
+            // other dataset's tooltip (distance, pace, ...) is untouched;
+            // only a "Race" point carrying `raceNames` gets the extra line.
+            afterLabel: (context) => {
+              const names = context.dataset.raceNames;
+              const name = names && names[context.dataIndex];
+              return name ? `Race: ${name}` : undefined;
+            },
+          },
+        },
       },
       scales: {
         x: { grid: { display: false }, ticks: { color: css("--ink-muted"), font: { size: 11 } } },

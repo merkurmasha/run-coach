@@ -256,6 +256,7 @@ def race_markers(activities: list, range_key: str | None = None, as_of=None) -> 
             "activity_type": r["activity_type"],
             "distance_km": round((r["distance_m"] or 0.0) / 1000.0, 1),
             "pace_s_per_km": r["avg_pace_s_per_km"],
+            "name": r["race_name"],
         }
         for r in sorted(races, key=lambda r: r["local_date"])
     ]

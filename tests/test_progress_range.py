@@ -106,9 +106,10 @@ def test_personal_bests_timeline_emits_one_event_per_improvement(tmp_path):
 def test_race_markers_only_includes_tagged_activities(tmp_path):
     activities = [make_run(1, "2026-01-05", 5000, 1500), make_run(2, "2026-01-12", 10000, 2900)]
     conn = seeded_conn(tmp_path, activities)
-    set_activity_race(conn, "garmin:2", True)
+    set_activity_race(conn, "garmin:2", True, "City 10K")
     conn.commit()
     markers = race_markers(rows(conn))
     assert len(markers) == 1
     assert markers[0]["distance_km"] == 10.0
+    assert markers[0]["name"] == "City 10K"
     conn.close()

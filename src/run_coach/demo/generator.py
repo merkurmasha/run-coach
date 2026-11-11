@@ -161,7 +161,7 @@ def generate_demo_data(conn: sqlite3.Connection, days: int = 365) -> None:
         day += timedelta(days=1)
 
     if race_activity_id is not None:
-        set_activity_race(conn, f"garmin:{race_activity_id}", True)
+        set_activity_race(conn, f"garmin:{race_activity_id}", True, "Demo City Half Marathon")
 
     # A synthetic 28-day cycle history for the patterns section.
     cycle_day = start

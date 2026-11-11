@@ -432,7 +432,7 @@ table.data-table th {
 
 /* ---------- race tagging ---------- */
 .race-tag-list {
-  max-height: 220px;
+  max-height: 320px;
   overflow-y: auto;
   font-size: 13px;
 }
@@ -444,9 +444,22 @@ table.data-table th {
   padding: 6px 0;
   border-bottom: 1px solid var(--hairline);
   gap: 10px;
+  flex-wrap: wrap;
 }
 
-.race-tag-row .race-tag-meta { color: var(--ink-muted); font-size: 12px; }
+.race-tag-row .race-tag-meta { color: var(--ink-muted); font-size: 12px; white-space: nowrap; }
+
+.race-tag-row .race-name-input {
+  flex: 1;
+  min-width: 90px;
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--page);
+  color: var(--ink);
+}
+.race-tag-row .race-name-input:disabled { opacity: 0.5; }
 
 .spike-flag {
   color: var(--warning);

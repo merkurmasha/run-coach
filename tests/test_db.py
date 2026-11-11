@@ -107,6 +107,31 @@ def test_activity_defaults_to_not_a_race_and_can_be_tagged(tmp_path):
     assert set_activity_race(conn, "garmin:does-not-exist", True) is False
 
 
+def test_race_tag_can_carry_a_name_and_loses_it_when_untagged(tmp_path):
+    db_path = tmp_path / "test.db"
+    init_db(db_path)
+    conn = connect(db_path)
+    activity = Activity(
+        source="garmin", external_id="1", start_time_utc="2026-01-01T06:00:00Z", local_date="2026-01-01",
+        activity_type="running", distance_m=5000.0, moving_time_s=1500.0, elapsed_time_s=1550.0,
+        avg_hr=150.0, max_hr=170.0, avg_pace_s_per_km=300.0, elevation_gain_m=20.0, calories=400.0,
+    )
+    upsert_activity(conn, activity)
+    conn.commit()
+
+    set_activity_race(conn, "garmin:1", True, "City 5K")
+    conn.commit()
+    row = all_activities(conn)[0]
+    assert row["is_race"] == 1
+    assert row["race_name"] == "City 5K"
+
+    set_activity_race(conn, "garmin:1", False)
+    conn.commit()
+    row = all_activities(conn)[0]
+    assert row["is_race"] == 0
+    assert row["race_name"] is None
+
+
 def test_resyncing_an_activity_does_not_clear_its_race_tag(tmp_path):
     db_path = tmp_path / "test.db"
     init_db(db_path)

@@ -124,10 +124,16 @@ const RECOMMENDATIONS = {
 };
 
 const ACTIVITIES = {
+  // Deliberately NOT already sorted with the known race date first: the
+  // real API sorts by date descending, so a more recent run (2026-11-10)
+  // would otherwise sit ahead of it -- exercising the frontend's own
+  // "pin the known race date to the top" logic rather than it being an
+  // accident of fixture ordering.
   activities: [
-    { id: "garmin:1", date: "2026-11-08", activity_type: "Run", distance_km: 10.2, is_race: false, moving_time_s: 3300, race_name: null },
-    { id: "strava:1", date: "2026-11-05", activity_type: "Run", distance_km: 8.0, is_race: false, moving_time_s: 2900, race_name: null },
-    { id: "strava:2", date: "2026-11-02", activity_type: "Run", distance_km: 5.0, is_race: false, moving_time_s: 1700, race_name: null },
+    { id: "strava:3", date: "2026-11-10", activity_type: "Run", distance_km: 6.0, is_race: false, time_s: 2000, race_name: null },
+    { id: "garmin:1", date: "2026-11-08", activity_type: "Run", distance_km: 10.2, is_race: false, time_s: 3300, race_name: null },
+    { id: "strava:1", date: "2026-11-05", activity_type: "Run", distance_km: 8.0, is_race: false, time_s: 2900, race_name: null },
+    { id: "strava:2", date: "2026-11-02", activity_type: "Run", distance_km: 5.0, is_race: false, time_s: 1700, race_name: null },
   ],
 };
 

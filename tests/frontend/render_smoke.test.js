@@ -144,6 +144,14 @@ async function run() {
   const errorCardsAfterRangeSwitch = [...window.document.querySelectorAll(".render-error")];
   for (const card of errorCardsAfterRangeSwitch) failures.push(`render-error card present after range switch: ${card.textContent}`);
 
+  // The known race date (2026-11-08) isn't the most recent activity in
+  // the fixture, so this only passes if renderRaceTagList's own pin-to-top
+  // logic actually ran, not just by accident of fixture ordering.
+  const firstRaceRow = window.document.querySelector("#race-tag-list .race-tag-row");
+  if (!firstRaceRow || !firstRaceRow.textContent.includes("2026-11-08")) {
+    failures.push(`race-tag-list's first row should be the known race date (2026-11-08), got: ${firstRaceRow ? firstRaceRow.textContent : "(none)"}`);
+  }
+
   if (failures.length > 0) {
     console.error("FAIL\n" + failures.map((f) => ` - ${f}`).join("\n"));
     process.exit(1);

@@ -261,21 +261,25 @@ def create_app(demo: bool = False) -> FastAPI:
                     "date": r["local_date"],
                     "activity_type": r["activity_type"],
                     "distance_km": round((r["distance_m"] or 0.0) / 1000.0, 1),
+                    "time_s": r["moving_time_s"] or r["elapsed_time_s"],
                     "is_race": bool(r["is_race"]),
+                    "race_name": r["race_name"],
                 }
                 for r in sorted(rows, key=lambda r: r["local_date"], reverse=True)
             ]
         }
 
     @app.post("/api/activities/{activity_id}/race")
-    def tag_race(activity_id: str, payload: dict[str, bool]) -> dict:
+    def tag_race(activity_id: str, payload: dict[str, Any]) -> dict:
         if demo:
             raise HTTPException(400, "Demo mode's activities are read-only.")
         from run_coach.storage.db import set_activity_race
 
         conn = get_conn()
         try:
-            found = set_activity_race(conn, activity_id, payload.get("is_race", False))
+            found = set_activity_race(
+                conn, activity_id, bool(payload.get("is_race", False)), payload.get("race_name") or None
+            )
             conn.commit()
         finally:
             conn.close()
