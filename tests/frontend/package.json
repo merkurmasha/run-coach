@@ -5,7 +5,7 @@
   "description": "Headless jsdom smoke test for the dashboard's app.js, driven against synthetic API fixtures.",
   "type": "commonjs",
   "scripts": {
-    "test": "node render_smoke.test.js"
+    "test": "node render_smoke.test.js && node pace_axis.test.js"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"

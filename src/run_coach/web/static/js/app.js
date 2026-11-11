@@ -399,7 +399,7 @@
     makeChart("chart-pace-trend", {
       type: "line",
       data: { labels, datasets },
-      options: baseChartOptions({ legend: true, yTickFormatter: fmtPaceSec }),
+      options: baseChartOptions({ legend: true, paceAxis: true }),
     });
   }
 
@@ -428,7 +428,7 @@
           borderWidth: 2, pointRadius: 2, tension: 0.25, spanGaps: true,
         }],
       },
-      options: baseChartOptions({ legend: false, yTickFormatter: fmtPaceSec }),
+      options: baseChartOptions({ legend: false, paceAxis: true }),
     });
   }
 
@@ -460,7 +460,7 @@
     makeChart("chart-pb-timeline", {
       type: "line",
       data: { labels, datasets },
-      options: baseChartOptions({ legend: true, yTickFormatter: fmtPaceSec }),
+      options: baseChartOptions({ legend: true, paceAxis: true }),
     });
   }
 
@@ -766,7 +766,15 @@
     return d.innerHTML;
   }
 
-  function baseChartOptions({ legend = true, yTickFormatter = null } = {}) {
+  // Single switch controlling every "pace is on the y-axis" chart: it
+  // reverses the scale (so faster/lower seconds-per-km draws higher),
+  // formats ticks and tooltips as min:sec/km, and labels the axis --
+  // all three together, so a future edit can't flip the direction on one
+  // chart without also updating its ticks/label (there's only one flag to
+  // set). See tests/frontend/pace_axis.test.js for the check that every
+  // pace chart actually sets it.
+  function baseChartOptions({ legend = true, yTickFormatter = null, paceAxis = false } = {}) {
+    const tickFormatter = paceAxis ? fmtPaceSec : yTickFormatter;
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -775,6 +783,13 @@
         tooltip: {
           backgroundColor: css("--ink"), titleColor: css("--page"), bodyColor: css("--page"), padding: 10, cornerRadius: 6,
           callbacks: {
+            label: paceAxis
+              ? (context) => {
+                  const label = context.dataset.label || "";
+                  const formatted = fmtPaceSec(context.parsed.y);
+                  return label ? `${label}: ${formatted}` : formatted;
+                }
+              : undefined,
             // Adds a line rather than replacing the default one, so every
             // other dataset's tooltip (distance, pace, ...) is untouched;
             // only a "Race" point carrying `raceNames` gets the extra line.
@@ -789,11 +804,13 @@
       scales: {
         x: { grid: { display: false }, ticks: { color: css("--ink-muted"), font: { size: 11 } } },
         y: {
+          reverse: paceAxis,
           grid: { color: css("--hairline") },
+          title: paceAxis ? { display: true, text: "faster ↑", color: css("--ink-muted"), font: { size: 11 } } : undefined,
           ticks: {
             color: css("--ink-muted"),
             font: { size: 11 },
-            callback: yTickFormatter ? (v) => yTickFormatter(v) : undefined,
+            callback: tickFormatter ? (v) => tickFormatter(v) : undefined,
           },
         },
       },
