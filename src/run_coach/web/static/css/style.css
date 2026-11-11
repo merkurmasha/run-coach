@@ -243,6 +243,12 @@ section.block > h2 {
   font-style: italic;
 }
 
+.render-error {
+  color: var(--critical);
+  font-size: 13px;
+  border: 1px solid var(--critical);
+}
+
 canvas { max-width: 100%; }
 
 .chart-card { padding-bottom: 8px; }

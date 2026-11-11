@@ -228,19 +228,56 @@
     return chartInstances[canvasId];
   }
 
+  // The canvas for a chart is always the direct child of its ".chart-wrap"
+  // container (see index.html), so the wrap is the canvas's own closest
+  // ancestor with that class -- not, as an earlier version of this file
+  // assumed, a *sibling* of the canvas reached via parentElement once more.
+  function chartWrap(canvasId) {
+    const canvas = document.getElementById(canvasId);
+    return canvas ? canvas.closest(".chart-wrap") : null;
+  }
+
+  // Every render*() function below is wired up through one of these two
+  // wrappers so that a bug or missing-data surprise in one section can
+  // never take down sections rendered after it: the error is caught,
+  // logged, and shown as a small card in that section's own place instead
+  // of propagating out of boot()/refreshProgress() and aborting everything
+  // still queued after it.
+  function errorCardInto(target, label, err) {
+    console.error(`[render: ${label}]`, err);
+    if (!target) return;
+    target.innerHTML = `<div class="card render-error">Couldn't render "${escapeHtml(label)}": ${escapeHtml((err && err.message) || String(err))}</div>`;
+  }
+  function safeRenderChart(label, canvasId, fn) {
+    try {
+      fn();
+    } catch (e) {
+      errorCardInto(chartWrap(canvasId), label, e);
+    }
+  }
+  function safeRender(label, containerId, fn) {
+    try {
+      fn();
+    } catch (e) {
+      errorCardInto(document.getElementById(containerId), label, e);
+    }
+  }
+
   // Shared dashboard state, read by functions outside boot()'s own scope
   // (e.g. the race-tag checkbox handler triggers a progress refresh).
   const dashboardState = { range: "4w", stats: null, recs: null };
 
   async function refreshProgress() {
     const progress = await api.progress(dashboardState.range);
-    renderProgressTiles(progress);
-    renderWeeklyDistanceChart(progress);
-    renderPaceTrendChart(progress);
-    renderEfficiencyTrendChart(progress);
-    renderPbTimelineChart(progress);
-    renderRacePredictionsTable(progress);
-    if (dashboardState.stats) renderGlance(dashboardState.stats, progress, dashboardState.recs);
+    safeRender("Progress tiles", "progress-tiles", () => renderProgressTiles(progress));
+    safeRenderChart("Weekly distance chart", "chart-weekly-distance", () => renderWeeklyDistanceChart(progress));
+    safeRenderChart("Pace trend chart", "chart-pace-trend", () => renderPaceTrendChart(progress));
+    safeRenderChart("Aerobic efficiency chart", "chart-efficiency", () => renderEfficiencyTrendChart(progress));
+    safeRenderChart("Personal-bests timeline", "chart-pb-timeline", () => renderPbTimelineChart(progress));
+    safeRender("Race time estimates", "race-predictions-table", () => renderRacePredictionsTable(progress));
+    if (dashboardState.stats) {
+      safeRender("At a glance", "glance-grid", () => renderGlance(dashboardState.stats, progress, dashboardState.recs));
+    }
     return progress;
   }
 
@@ -321,7 +358,8 @@
   function renderPaceTrendChart(progress) {
     const weeks = progress.pace_trend;
     if (weeks.length === 0) {
-      document.getElementById("chart-pace-trend").parentElement.querySelector(".chart-wrap").innerHTML = '<div class="not-enough-data">not enough data yet</div>';
+      const wrap = chartWrap("chart-pace-trend");
+      if (wrap) wrap.innerHTML = '<div class="not-enough-data">not enough data yet</div>';
       return;
     }
     const labels = weeks.map((w) => w.week);
@@ -342,9 +380,15 @@
   function renderEfficiencyTrendChart(progress) {
     const rows = progress.pace_at_hr_trend;
     const withData = rows.filter((r) => r.pace_at_reference_hr_s_per_km != null);
-    const wrap = document.getElementById("chart-efficiency").parentElement.querySelector(".chart-wrap");
+    const wrap = chartWrap("chart-efficiency");
     if (withData.length === 0) {
-      wrap.innerHTML = '<div class="not-enough-data">not enough data yet (needs 8+ runs with heart-rate data in the trailing window)</div>';
+      const c = progress.hr_coverage || {};
+      const detail =
+        c.total_runs != null
+          ? `needs 8+ runs with heart-rate data in the trailing window -- currently ${c.runs_with_hr} of ${c.total_runs} runs have it` +
+            (c.strava_total ? ` (${c.strava_with_hr} of ${c.strava_total} Strava runs)` : "")
+          : "needs 8+ runs with heart-rate data in the trailing window";
+      if (wrap) wrap.innerHTML = `<div class="not-enough-data">not enough data yet (${escapeHtml(detail)})</div>`;
       return;
     }
     makeChart("chart-efficiency", {
@@ -364,9 +408,9 @@
 
   function renderPbTimelineChart(progress) {
     const events = progress.personal_bests_timeline;
-    const wrap = document.getElementById("chart-pb-timeline").parentElement.querySelector(".chart-wrap");
+    const wrap = chartWrap("chart-pb-timeline");
     if (events.length === 0) {
-      wrap.innerHTML = '<div class="not-enough-data">not enough data yet</div>';
+      if (wrap) wrap.innerHTML = '<div class="not-enough-data">not enough data yet (needs a 5K/10K/half-marathon-length run on record)</div>';
       return;
     }
     // A shared category axis (no date-scale adapter is vendored), one
@@ -510,7 +554,8 @@
 
     const longRun = standing.long_run_progression;
     if (longRun.length === 0) {
-      document.getElementById("chart-long-run").parentElement.querySelector(".chart-wrap").innerHTML = '<div class="not-enough-data">not enough data yet</div>';
+      const wrap = chartWrap("chart-long-run");
+      if (wrap) wrap.innerHTML = '<div class="not-enough-data">not enough data yet (no runs in the last 12 weeks)</div>';
     } else {
       makeChart("chart-long-run", {
         type: "line",
@@ -583,12 +628,13 @@
     const hz = stats.load.hr_zone_distribution;
     const wrap = document.getElementById("hr-zone-wrap");
     if (!hz.available) {
-      wrap.innerHTML = '<div class="not-enough-data">not available from Garmin for your activities yet</div>';
+      wrap.innerHTML = `<div class="not-enough-data">needs per-zone heart-rate minutes from Garmin -- 0 of ${hz.n_running_activities ?? 0} running activities have it yet (Strava's export doesn't carry this field)</div>`;
       return;
     }
+    wrap.innerHTML = '<canvas id="chart-hr-zones"></canvas>';
     const zoneColors = [css("--s1"), css("--s2"), css("--s3"), css("--s4"), css("--s5")];
     const labels = Object.keys(hz.zones).map((z) => `Zone ${z}`);
-    new Chart(document.getElementById("chart-hr-zones"), {
+    makeChart("chart-hr-zones", {
       type: "bar",
       data: { labels, datasets: [{ label: "% of running time", data: Object.values(hz.zones), backgroundColor: labels.map((_, i) => zoneColors[i % zoneColors.length]), borderRadius: 4 }] },
       options: baseChartOptions({ legend: false }),
@@ -858,7 +904,7 @@
         setActiveRangeButton();
         try {
           await refreshProgress();
-          await renderRaceTagList(dashboardState.range);
+          await renderRaceTagList();
         } catch (e) {
           alert("Could not load that range: " + e.message);
         }
@@ -866,23 +912,50 @@
     });
     setActiveRangeButton();
 
-    const [stats, recs, progress] = await Promise.all([api.stats(), api.recommendations(), api.progress(dashboardState.range)]);
+    // Each of these three calls feeds different sections. One failing (a
+    // bad Claude key doesn't affect this, but a DB error or a future bug
+    // in any one endpoint could) must not blank out the sections fed by
+    // the other two, so they're fetched independently via allSettled
+    // rather than Promise.all.
+    const [statsResult, recsResult, progressResult] = await Promise.allSettled([
+      api.stats(),
+      api.recommendations(),
+      api.progress(dashboardState.range),
+    ]);
+    const stats = statsResult.status === "fulfilled" ? statsResult.value : null;
+    const recs = recsResult.status === "fulfilled" ? recsResult.value : null;
+    const progress = progressResult.status === "fulfilled" ? progressResult.value : null;
     dashboardState.stats = stats;
     dashboardState.recs = recs;
 
-    renderProgressTiles(progress);
-    renderWeeklyDistanceChart(progress);
-    renderPaceTrendChart(progress);
-    renderEfficiencyTrendChart(progress);
-    renderPbTimelineChart(progress);
-    renderRacePredictionsTable(progress);
-    renderStanding(stats);
-    renderGlance(stats, progress, recs);
-    renderLoad(stats);
-    renderPatterns(stats);
-    renderRecommendations(recs);
-    renderGaps(stats);
-    if (!status.demo) renderRaceTagList(dashboardState.range);
+    if (progress) {
+      safeRender("Progress tiles", "progress-tiles", () => renderProgressTiles(progress));
+      safeRenderChart("Weekly distance chart", "chart-weekly-distance", () => renderWeeklyDistanceChart(progress));
+      safeRenderChart("Pace trend chart", "chart-pace-trend", () => renderPaceTrendChart(progress));
+      safeRenderChart("Aerobic efficiency chart", "chart-efficiency", () => renderEfficiencyTrendChart(progress));
+      safeRenderChart("Personal-bests timeline", "chart-pb-timeline", () => renderPbTimelineChart(progress));
+      safeRender("Race time estimates", "race-predictions-table", () => renderRacePredictionsTable(progress));
+    } else {
+      errorCardInto(document.getElementById("progress-tiles"), "Progress", progressResult.reason);
+    }
+    if (stats) {
+      safeRender("Where am I in my training?", "section-standing", () => renderStanding(stats));
+      safeRender("Effort distribution", "hr-zone-wrap", () => renderLoad(stats));
+      safeRender("Your patterns", "section-patterns", () => renderPatterns(stats));
+      safeRender("Data gaps", "gaps-list", () => renderGaps(stats));
+    } else {
+      errorCardInto(document.getElementById("section-standing"), "Where am I in my training?", statsResult.reason);
+      errorCardInto(document.getElementById("gaps-list"), "Data gaps", statsResult.reason);
+    }
+    if (stats && progress) {
+      safeRender("At a glance", "glance-grid", () => renderGlance(stats, progress, recs));
+    }
+    if (recs) {
+      safeRender("What should I do next?", "recs-list", () => renderRecommendations(recs));
+    } else {
+      errorCardInto(document.getElementById("recs-list"), "What should I do next?", recsResult.reason);
+    }
+    if (!status.demo) renderRaceTagList();
     else document.getElementById("race-tag-list").innerHTML = '<div class="not-enough-data">read-only in demo mode</div>';
 
     if (status.demo) document.getElementById("generate-recs-btn").classList.add("hidden");
@@ -892,8 +965,11 @@
       try {
         const result = await api.generateRecommendations();
         dashboardState.recs = result;
-        renderRecommendations(result);
-        renderGlance(dashboardState.stats, await api.progress(dashboardState.range), result);
+        safeRender("What should I do next?", "recs-list", () => renderRecommendations(result));
+        if (dashboardState.stats) {
+          const freshProgress = await api.progress(dashboardState.range);
+          safeRender("At a glance", "glance-grid", () => renderGlance(dashboardState.stats, freshProgress, result));
+        }
       } catch (err) {
         alert("Could not generate recommendations: " + err.message);
       } finally {
@@ -903,5 +979,10 @@
     });
   }
 
-  boot();
+  boot().catch((e) => {
+    console.error("[boot]", e);
+    document.body.appendChild(
+      el("div", { class: "card render-error", style: "margin:16px;" }, [`Couldn't load run-coach: ${e.message}`])
+    );
+  });
 })();

@@ -1,0 +1,13 @@
+{
+  "name": "run-coach-frontend-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Headless jsdom smoke test for the dashboard's app.js, driven against synthetic API fixtures.",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node render_smoke.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
+}
