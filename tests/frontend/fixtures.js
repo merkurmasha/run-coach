@@ -133,4 +133,9 @@ const ACTIVITIES = {
 
 const STRAVA_LAST_IMPORT = { report: null };
 
-module.exports = { STATUS, STATS, progressFor, RECOMMENDATIONS, ACTIVITIES, STRAVA_LAST_IMPORT };
+const SYNC_STATUS = {
+  garmin: { running: false, last_synced_at: "2026-11-10T06:00:00Z", last_ok: true, last_error: null, last_counts: { activities: 3 } },
+  strava: { running: false, last_synced_at: "2026-11-01T00:00:00Z", last_ok: true, last_error: null, last_counts: { imported: 125 } },
+};
+
+module.exports = { STATUS, STATS, progressFor, RECOMMENDATIONS, ACTIVITIES, STRAVA_LAST_IMPORT, SYNC_STATUS };

@@ -14,7 +14,7 @@
 const fs = require("fs");
 const path = require("path");
 const { JSDOM } = require("jsdom");
-const { STATUS, STATS, progressFor, RECOMMENDATIONS, ACTIVITIES, STRAVA_LAST_IMPORT } = require("./fixtures");
+const { STATUS, STATS, progressFor, RECOMMENDATIONS, ACTIVITIES, STRAVA_LAST_IMPORT, SYNC_STATUS } = require("./fixtures");
 
 const STATIC_DIR = path.resolve(__dirname, "../../src/run_coach/web/static");
 
@@ -26,6 +26,7 @@ function routeFor(url) {
   if (u.pathname === "/api/recommendations") return RECOMMENDATIONS;
   if (u.pathname === "/api/activities") return ACTIVITIES;
   if (u.pathname === "/api/strava/last-import") return STRAVA_LAST_IMPORT;
+  if (u.pathname === "/api/sync/status") return SYNC_STATUS;
   throw new Error(`unstubbed fetch: ${url}`);
 }
 
@@ -124,6 +125,7 @@ async function run() {
     ["glance-grid", (n) => n.children.length === 3],
     ["race-tag-list", (n) => n.textContent.trim().length > 0],
     ["hr-zone-wrap", (n) => n.textContent.trim().length > 0 || n.querySelector("canvas") != null],
+    ["sync-status-table", (n) => n.rows.length > 1],
   ];
   for (const [id, check] of nonEmptyChecks) {
     const node = window.document.getElementById(id);

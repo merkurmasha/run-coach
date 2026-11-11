@@ -51,6 +51,21 @@
   }
 
   // ---------- API ----------
+  const SYNC_TIMEOUT_MS = 120000; // generous: a full history sync makes many sequential Garmin calls
+
+  // A plain fetch() has no timeout of its own, so a request that never
+  // gets a response (dead network, a server stuck mid-sync) leaves the
+  // caller's "Syncing…" button text stuck forever with nothing to tell
+  // the user why. This aborts the client-side wait after `timeoutMs`;
+  // the server-side work may well still finish on its own (there's no
+  // cross-process cancellation here), and a later /api/sync/status poll
+  // picks up however it actually ended.
+  function fetchWithTimeout(url, init, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  }
+
   // Every call throws on a non-2xx response, carrying the server's own
   // detail message, so a failure is never silently swallowed into an empty
   // or "not enough data" UI state (see api-root-cause notes in app.py).
@@ -74,7 +89,8 @@
     generateRecommendations: () => asJson(fetch("/api/recommendations/generate", { method: "POST" })),
     saveSettings: (payload) => asJson(fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })),
     saveSecrets: (payload) => asJson(fetch("/api/setup/secrets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })),
-    sync: () => asJson(fetch("/api/sync", { method: "POST" })),
+    sync: () => asJson(fetchWithTimeout("/api/sync", { method: "POST" }, SYNC_TIMEOUT_MS)),
+    syncStatus: () => asJson(fetch("/api/sync/status")),
     reset: () => asJson(fetch("/api/reset", { method: "POST" })),
     testClaude: () => asJson(fetch("/api/claude/test", { method: "POST" })),
     saveClaudeKey: (apiKey) =>
@@ -729,6 +745,45 @@
   }
 
   // ---------- settings: strava import ----------
+  function relativeTime(iso) {
+    if (!iso) return "never";
+    const then = new Date(iso).getTime();
+    if (Number.isNaN(then)) return iso;
+    const seconds = Math.round((Date.now() - then) / 1000);
+    if (seconds < 5) return "just now";
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 48) return `${hours}h ago`;
+    return `${Math.round(hours / 24)}d ago`;
+  }
+
+  async function renderSyncStatus() {
+    const table = document.getElementById("sync-status-table");
+    if (!table) return;
+    let status;
+    try {
+      status = await api.syncStatus();
+    } catch (e) {
+      table.innerHTML = `<tr><td class="not-enough-data">couldn't load sync status: ${escapeHtml(e.message)}</td></tr>`;
+      return;
+    }
+    const rows = [
+      ["garmin", "Garmin"],
+      ["strava", "Strava"],
+    ].map(([key, label]) => {
+      const s = status[key] || {};
+      let state;
+      if (s.running) state = "running…";
+      else if (s.last_synced_at == null) state = '<span class="not-enough-data">never synced</span>';
+      else if (s.last_ok === false) state = `<span class="test-fail">error: ${escapeHtml(s.last_error || "unknown")}</span>`;
+      else state = '<span class="test-ok">ok</span>';
+      return `<tr><td>${label}</td><td>${escapeHtml(relativeTime(s.last_synced_at))}</td><td>${state}</td></tr>`;
+    });
+    table.innerHTML = "<tr><th>Source</th><th>Last synced</th><th>Status</th></tr>" + rows.join("");
+  }
+
   function renderStravaImportReport(report) {
     const box = document.getElementById("strava-import-report");
     if (!report) {
@@ -867,6 +922,7 @@
       } finally {
         importBtn.disabled = false;
         importBtn.textContent = "Import";
+        renderSyncStatus();
       }
     });
   }
@@ -895,8 +951,14 @@
           location.reload();
         } catch (e) {
           syncBtn.disabled = false;
-          syncBtn.textContent = "Sync failed";
-          alert("Sync failed: " + e.message);
+          const timedOut = e.name === "AbortError" || /abort/i.test(e.message || "");
+          syncBtn.textContent = timedOut ? "Sync timed out" : "Sync failed";
+          alert(
+            timedOut
+              ? `Sync didn't respond within ${SYNC_TIMEOUT_MS / 1000}s. It may still be running on the server -- check Sync status in Settings in a moment.`
+              : "Sync failed: " + e.message
+          );
+          renderSyncStatus();
         }
       });
       actions.appendChild(syncBtn);
@@ -923,6 +985,7 @@
       initClaudeTestButton();
       initApiKeySaveButton("settings_claude_key", "save-claude-key-btn", "save-claude-key-result", "claude-key-current", api.saveClaudeKey);
       initApiKeySaveButton("settings_garmin_key", "save-garmin-key-btn", "save-garmin-key-result", "garmin-key-current", api.saveGarminKey);
+      renderSyncStatus();
     } else {
       document.getElementById("section-settings").classList.add("hidden");
     }

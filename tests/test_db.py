@@ -8,6 +8,7 @@ from run_coach.storage.db import (
     get_setting,
     init_db,
     latest_data_gaps,
+    latest_sync_by_source,
     set_activity_race,
     set_setting,
     upsert_activity,
@@ -134,4 +135,20 @@ def test_sync_log_dedups_gaps_across_runs(tmp_path):
 
     gaps = latest_data_gaps(conn)
     assert gaps == ["hrv: missing", "sleep: missing"]
+    conn.close()
+
+
+def test_latest_sync_by_source_keeps_only_the_newest_row_per_source(tmp_path):
+    db_path = tmp_path / "test.db"
+    init_db(db_path)
+    conn = connect(db_path)
+    append_sync_log(conn, "garmin", "2026-01-01", "2026-01-07", {"activities": 2}, [])
+    append_sync_log(conn, "strava", None, None, {"imported": 10}, ["strava: some note"])
+    append_sync_log(conn, "garmin", "2026-01-08", "2026-01-14", {"error": "Authentication failed"}, ["Authentication failed"])
+    conn.commit()
+
+    latest = latest_sync_by_source(conn)
+    assert set(latest) == {"garmin", "strava"}
+    assert latest["garmin"]["counts"] == {"error": "Authentication failed"}
+    assert latest["strava"]["counts"] == {"imported": 10}
     conn.close()

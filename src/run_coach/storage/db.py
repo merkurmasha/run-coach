@@ -312,6 +312,25 @@ def append_sync_log(
     )
 
 
+def latest_sync_by_source(conn: sqlite3.Connection) -> dict[str, dict]:
+    """The most recent sync_log row per source, parsed -- the "honest
+    status" the dashboard shows (last synced when, with what counts or
+    error) without having to re-derive it from the raw gap strings."""
+    rows = conn.execute(
+        "SELECT source, ts, counts_json, data_gaps_json FROM sync_log ORDER BY id DESC LIMIT 200"
+    ).fetchall()
+    result: dict[str, dict] = {}
+    for row in rows:
+        if row["source"] in result:
+            continue
+        result[row["source"]] = {
+            "ts": row["ts"],
+            "counts": json.loads(row["counts_json"]),
+            "data_gaps": json.loads(row["data_gaps_json"]),
+        }
+    return result
+
+
 def latest_data_gaps(conn: sqlite3.Connection) -> list[str]:
     rows = conn.execute(
         "SELECT data_gaps_json FROM sync_log ORDER BY id DESC LIMIT 20"

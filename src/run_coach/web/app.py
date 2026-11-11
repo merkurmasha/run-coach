@@ -154,6 +154,32 @@ def create_app(demo: bool = False) -> FastAPI:
     def get_conn():
         return connect(db_path)
 
+    # Per-process, in-memory only: there's exactly one server for this one
+    # user, so "is a sync running right now" needs nothing fancier than a
+    # flag held for the lifetime of the request. What actually persists
+    # (and is what /api/sync/status mostly reports) is the sync_log row
+    # written at the end -- on success or on failure alike.
+    _sync_running = {"garmin": False, "strava": False}
+
+    @app.get("/api/sync/status")
+    def sync_status() -> dict:
+        from run_coach.storage.db import latest_sync_by_source
+
+        with get_conn() as conn:
+            latest = latest_sync_by_source(conn)
+        result = {}
+        for source in ("garmin", "strava"):
+            info = latest.get(source)
+            is_error = bool(info and "error" in info["counts"])
+            result[source] = {
+                "running": _sync_running[source],
+                "last_synced_at": info["ts"] if info else None,
+                "last_ok": (not is_error) if info else None,
+                "last_error": info["counts"].get("error") if info and is_error else None,
+                "last_counts": info["counts"] if info else None,
+            }
+        return result
+
     @app.get("/api/status")
     def status() -> dict:
         secrets = Secrets.load()
@@ -379,16 +405,32 @@ def create_app(demo: bool = False) -> FastAPI:
         secrets = Secrets.load()
         if not secrets.garmin_api_key:
             raise HTTPException(400, "No GARMIN_API_KEY configured yet.")
-        with transaction(db_path) as conn:
-            result = sync_garmin(conn, api_key=secrets.garmin_api_key, days=days)
-            append_sync_log(
-                conn,
-                source="garmin",
-                range_start=result["range"]["start"],
-                range_end=result["range"]["end"],
-                counts=result["counts"],
-                data_gaps=result["data_gaps"],
-            )
+
+        _sync_running["garmin"] = True
+        try:
+            with transaction(db_path) as conn:
+                result = sync_garmin(conn, api_key=secrets.garmin_api_key, days=days)
+                append_sync_log(
+                    conn,
+                    source="garmin",
+                    range_start=result["range"]["start"],
+                    range_end=result["range"]["end"],
+                    counts=result["counts"],
+                    data_gaps=result["data_gaps"],
+                )
+        except Exception as exc:
+            # A sync that blows up mid-way (bad key, Garmin outage, ...) is
+            # itself a result worth remembering, not just a 500 that leaves
+            # /api/sync/status with nothing to say about what happened.
+            message = _describe_garmin_error(exc)
+            with transaction(db_path) as conn:
+                append_sync_log(
+                    conn, source="garmin", range_start=None, range_end=None,
+                    counts={"error": message}, data_gaps=[message],
+                )
+            raise HTTPException(502, message) from exc
+        finally:
+            _sync_running["garmin"] = False
         return result
 
     def _strava_upload_path() -> Path:
@@ -398,16 +440,28 @@ def create_app(demo: bool = False) -> FastAPI:
         from run_coach.storage.db import get_setting, set_setting
         from run_coach.strava.sync import import_strava_csv
 
-        with transaction(db_path) as conn:
-            timezone_name = get_setting(conn, "timezone")
-            result = import_strava_csv(
-                conn, _strava_upload_path(), timezone_name=timezone_name, column_overrides=column_overrides
-            )
-            append_sync_log(
-                conn, source="strava", range_start=None, range_end=None,
-                counts=result["counts"], data_gaps=result["data_gaps"],
-            )
-            set_setting(conn, "last_strava_import_report", result)
+        _sync_running["strava"] = True
+        try:
+            with transaction(db_path) as conn:
+                timezone_name = get_setting(conn, "timezone")
+                result = import_strava_csv(
+                    conn, _strava_upload_path(), timezone_name=timezone_name, column_overrides=column_overrides
+                )
+                append_sync_log(
+                    conn, source="strava", range_start=None, range_end=None,
+                    counts=result["counts"], data_gaps=result["data_gaps"],
+                )
+                set_setting(conn, "last_strava_import_report", result)
+        except Exception as exc:
+            message = f"Strava import failed: {exc}"
+            with transaction(db_path) as conn:
+                append_sync_log(
+                    conn, source="strava", range_start=None, range_end=None,
+                    counts={"error": message}, data_gaps=[message],
+                )
+            raise
+        finally:
+            _sync_running["strava"] = False
         return result
 
     @app.post("/api/strava/import")
