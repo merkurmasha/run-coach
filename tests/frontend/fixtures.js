@@ -119,7 +119,14 @@ function progressFor(range) {
 
 const RECOMMENDATIONS = {
   generated_at: "2026-11-01T00:00:00Z",
-  recommendations: [{ evidence: "strong", text: "Sample recommendation text.", rationale: "Sample rationale." }],
+  recommendations: [
+    {
+      evidence: "strong",
+      text: "Sample recommendation text.",
+      why_it_matters: "Sample plain-language reason this matters.",
+      rationale: "Sample technical rationale.",
+    },
+  ],
   stats_summary: null,
 };
 

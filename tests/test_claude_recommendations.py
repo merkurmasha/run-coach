@@ -55,3 +55,22 @@ def test_generate_recommendations_returns_empty_list_when_no_text_block(monkeypa
     monkeypatch.setattr(claude_client.anthropic, "Anthropic", lambda api_key: EmptyClient())
     result = claude_client.generate_recommendations({"a": 1}, api_key="fake", model="fake-model")
     assert result == []
+
+
+def test_output_schema_requires_why_it_matters_field():
+    item_schema = claude_client.OUTPUT_SCHEMA["properties"]["recommendations"]["items"]
+    assert "why_it_matters" in item_schema["properties"]
+    assert "why_it_matters" in item_schema["required"]
+    assert "rationale" in item_schema["required"]
+
+
+def test_system_prompt_has_three_good_and_three_bad_examples():
+    assert claude_client.SYSTEM_PROMPT.count("BAD:") == 3
+    assert claude_client.SYSTEM_PROMPT.count("GOOD:") == 3
+
+
+def test_system_prompt_bans_jargon_in_user_facing_text():
+    prompt = claude_client.SYSTEM_PROMPT
+    assert "field name" in prompt.lower()
+    assert "W42" in prompt  # the ISO-week-code example it tells Claude to avoid
+    assert "s/km" in prompt  # named as the unit to avoid writing in user-facing text

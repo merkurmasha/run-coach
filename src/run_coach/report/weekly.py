@@ -22,17 +22,30 @@ from run_coach.recommendations.validator import (
 )
 from run_coach.storage.db import all_activities, all_daily_metrics, all_settings
 
-SYSTEM_PROMPT = """You write a short weekly running report for one runner, from the \
-small JSON you're given. Never invent or compute a number -- every number you write \
-must appear in the JSON. Never give medical advice or diagnose anything mentioned in \
-special_conditions; if it sounds like pain or injury, the watch_out or a key result \
-should suggest checking with a professional rather than pushing through it. If \
-follows_watch_plan is true, next_week.objective and key_results must read as \
-adjustments to the user's existing plan, not a replacement for it. Keep it concise: \
-highlight and watch_out are one sentence each. next_week.key_results must have exactly \
-three short items, and next_week.fallback_sessions must have exactly three items, each \
-fallback_sessions[i] pairing with key_results[i]. Respond with the report JSON described \
-by the schema."""
+SYSTEM_PROMPT = """You write a short weekly running report for one runner, in the \
+voice of a friendly, sensible coach talking to a beginner or intermediate runner -- \
+not a data summary. It's built from the small JSON you're given.
+
+Rules, no exceptions:
+1. Never invent or compute a number -- every number you write must appear in the \
+JSON, but convert it into everyday phrasing first: seconds-per-km paces become \
+"min:sec per km" (e.g. "309.6" -> "about 5:10/km"), ISO week keys and dates become \
+relative phrases ("last week", "mid-October"), and a percentage becomes a plain \
+fraction when that reads more naturally. Never write an internal field name, a \
+variable name, an ISO week code ("W42"), or the unit "s/km" anywhere in this report.
+2. Short sentences, everyday words, no jargon. If a term is genuinely unavoidable \
+("easy pace", "heart rate zone"), explain it in half a sentence the first time.
+3. Never give medical advice or diagnose anything mentioned in special_conditions; \
+if it sounds like pain or injury, the watch_out or a key result should plainly \
+suggest checking with a doctor or physio rather than pushing through it.
+4. If follows_watch_plan is true, next_week.objective and key_results must read as \
+adjustments to the user's existing plan, not a replacement for it.
+5. Keep it concise: highlight and watch_out are one plain sentence each. \
+next_week.key_results must have exactly three short items, and \
+next_week.fallback_sessions must have exactly three items, each fallback_sessions[i] \
+pairing with key_results[i].
+
+Respond with the report JSON described by the schema."""
 
 OUTPUT_SCHEMA = {
     "type": "object",
@@ -138,13 +151,16 @@ def generate_weekly_report(conn: sqlite3.Connection, secrets: Secrets, weeks: in
         raise RuntimeError("Claude did not return a report.")
 
     allowed = allowed_numbers_from_stats(context)
-    report["highlight"] = filter_text_against_numbers(report.get("highlight", ""), allowed) or "(dropped: unverifiable numbers)"
-    report["watch_out"] = filter_text_against_numbers(report.get("watch_out", ""), allowed) or "(dropped: unverifiable numbers)"
+
+    def _clean(text: str) -> str:
+        return filter_text_against_numbers(text, allowed, check_jargon=True) or "(dropped: unverifiable numbers)"
+
+    report["highlight"] = _clean(report.get("highlight", ""))
+    report["watch_out"] = _clean(report.get("watch_out", ""))
     next_week = report.get("next_week", {})
-    next_week["objective"] = filter_text_against_numbers(next_week.get("objective", ""), allowed) or "(dropped: unverifiable numbers)"
-    next_week["key_results"] = [
-        filter_text_against_numbers(kr, allowed) or "(dropped: unverifiable numbers)" for kr in next_week.get("key_results", [])
-    ]
+    next_week["objective"] = _clean(next_week.get("objective", ""))
+    next_week["key_results"] = [_clean(kr) for kr in next_week.get("key_results", [])]
+    next_week["fallback_sessions"] = [_clean(fs) for fs in next_week.get("fallback_sessions", [])]
     report["next_week"] = next_week
     report["context"] = context
     return report

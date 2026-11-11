@@ -731,6 +731,15 @@
       : '<div class="not-enough-data">no special conditions logged</div>';
   }
 
+  // Human-readable evidence tags and the one-line plain explanation shown
+  // in each tag's tooltip (same hover pattern as statTile's "method" icon).
+  const EVIDENCE_LABELS = { strong: "Well supported", moderate: "Some evidence", hypothesis: "Worth testing" };
+  const EVIDENCE_TOOLTIPS = {
+    strong: "Backed by well-established training science, applied to your own numbers.",
+    moderate: "A reasonable read of your data, with some uncertainty.",
+    hypothesis: "A pattern worth testing, not yet a strong signal -- often from a small amount of data.",
+  };
+
   function renderRecommendations(data) {
     const list = document.getElementById("recs-list");
     const genAt = document.getElementById("recs-generated-at");
@@ -741,13 +750,23 @@
     }
     list.innerHTML = "";
     for (const rec of data.recommendations) {
-      list.appendChild(
-        el("div", { class: "card rec-card" }, [
-          el("div", { class: `evidence ${rec.evidence}` }, [rec.evidence]),
-          el("div", {}, [rec.text]),
-          el("div", { class: "rationale" }, [rec.rationale]),
-        ])
-      );
+      const evidenceTag = el("div", { class: `evidence ${rec.evidence}` }, [
+        EVIDENCE_LABELS[rec.evidence] || rec.evidence,
+        el("span", { class: "method" }, ["?", el("span", { class: "tooltip" }, [EVIDENCE_TOOLTIPS[rec.evidence] || ""])]),
+      ]);
+      const children = [evidenceTag, el("div", {}, [rec.text])];
+      if (rec.why_it_matters) {
+        children.push(el("div", { class: "why-it-matters" }, [rec.why_it_matters]));
+      }
+      if (rec.rationale) {
+        children.push(
+          el("details", { class: "show-numbers" }, [
+            el("summary", {}, ["Show the numbers"]),
+            el("div", { class: "show-numbers-detail" }, [rec.rationale]),
+          ])
+        );
+      }
+      list.appendChild(el("div", { class: "card rec-card" }, children));
     }
   }
 

@@ -95,6 +95,43 @@ def test_generate_weekly_report_uses_structured_output_not_forced_tool_choice(tm
     conn.close()
 
 
+def test_generate_weekly_report_drops_jargon_from_every_user_facing_field(tmp_path, monkeypatch):
+    conn = _seeded_conn(tmp_path)
+    report_with_jargon = {
+        "highlight": "Your weeks_until_race is 6.",
+        "watch_out": "Pace was 300.0 s/km in W04.",
+        "next_week": {
+            "objective": "Protect runs_per_week.",
+            "key_results": ["Run 3 times", "Cover 7.0 km total", "Keep pace around 5:00/km"],
+            "fallback_sessions": ["Do a weeks_until_race check", "Rest day", "Short jog"],
+        },
+    }
+    fake_client = FakeAnthropic(report_with_jargon)
+    monkeypatch.setattr(weekly.anthropic, "Anthropic", lambda api_key: fake_client)
+
+    secrets = Secrets(
+        garmin_api_key=None, anthropic_api_key="fake", claude_model="claude-sonnet-5-5",
+        telegram_bot_token=None, telegram_chat_id=None,
+    )
+    report = weekly.generate_weekly_report(conn, secrets, weeks=8)
+
+    assert report["highlight"] == "(dropped: unverifiable numbers)"
+    assert report["watch_out"] == "(dropped: unverifiable numbers)"
+    assert report["next_week"]["objective"] == "(dropped: unverifiable numbers)"
+    assert report["next_week"]["fallback_sessions"][0] == "(dropped: unverifiable numbers)"
+    # The two clean fallback sessions survive -- only the jargon one is dropped.
+    assert report["next_week"]["fallback_sessions"][1] == "Rest day"
+    assert report["next_week"]["fallback_sessions"][2] == "Short jog"
+    conn.close()
+
+
+def test_weekly_report_system_prompt_bans_jargon():
+    prompt = weekly.SYSTEM_PROMPT
+    assert "field name" in prompt.lower()
+    assert "W42" in prompt
+    assert "s/km" in prompt
+
+
 def test_generate_weekly_report_requires_claude_key(tmp_path):
     conn = _seeded_conn(tmp_path)
     secrets = Secrets(

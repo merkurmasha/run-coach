@@ -283,7 +283,9 @@ table.data-table th {
   letter-spacing: 0.04em;
   padding: 2px 8px;
   border-radius: 999px;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 8px;
 }
 
@@ -291,9 +293,26 @@ table.data-table th {
 .evidence.moderate { background: rgba(250, 178, 25, 0.18); color: var(--warning); }
 .evidence.hypothesis { background: rgba(137, 135, 129, 0.2); color: var(--ink-secondary); }
 
-.rec-card .rationale {
+.rec-card .why-it-matters {
   font-size: 12px;
   color: var(--ink-muted);
+  margin-top: 6px;
+}
+
+.rec-card .show-numbers {
+  margin-top: 8px;
+}
+
+.rec-card .show-numbers summary {
+  font-size: 12px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.rec-card .show-numbers-detail {
+  font-size: 12px;
+  color: var(--ink-secondary);
   margin-top: 6px;
 }
 

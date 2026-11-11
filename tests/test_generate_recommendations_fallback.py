@@ -61,9 +61,11 @@ def test_uses_claude_output_when_the_call_succeeds(tmp_path, monkeypatch):
     )
 
     def fake_generate(stats, api_key, model):
-        return [{"text": "test rec", "evidence": "strong", "rationale": "test"}]
+        return [{"text": "test rec", "evidence": "strong", "why_it_matters": "it matters", "rationale": "test"}]
 
     monkeypatch.setattr(generate, "generate_recommendations", fake_generate)
     result = generate.generate_and_cache(conn, secrets)
-    assert result["recommendations"] == [{"text": "test rec", "evidence": "strong", "rationale": "test"}]
+    assert result["recommendations"] == [
+        {"text": "test rec", "evidence": "strong", "why_it_matters": "it matters", "rationale": "test"}
+    ]
     conn.close()
