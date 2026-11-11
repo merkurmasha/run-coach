@@ -184,27 +184,62 @@ def create_app(demo: bool = False) -> FastAPI:
             )
         return result
 
-    @app.post("/api/strava/import")
-    async def strava_import(file: UploadFile) -> dict:
-        if demo:
-            raise HTTPException(400, "Demo mode uses synthetic data; there is nothing to import.")
-        from run_coach.storage.db import get_setting
-        from run_coach.strava.sync import import_strava_csv
+    def _strava_upload_path() -> Path:
+        return ensure_data_dir() / "uploads" / "activities.csv"
 
-        upload_dir = ensure_data_dir() / "uploads"
-        upload_dir.mkdir(exist_ok=True)
-        dest = upload_dir / "activities.csv"
-        with dest.open("wb") as out:
-            shutil.copyfileobj(file.file, out)
+    def _run_strava_import(column_overrides: dict[str, str] | None) -> dict:
+        from run_coach.storage.db import get_setting, set_setting
+        from run_coach.strava.sync import import_strava_csv
 
         with transaction(db_path) as conn:
             timezone_name = get_setting(conn, "timezone")
-            result = import_strava_csv(conn, dest, timezone_name=timezone_name)
+            result = import_strava_csv(
+                conn, _strava_upload_path(), timezone_name=timezone_name, column_overrides=column_overrides
+            )
             append_sync_log(
                 conn, source="strava", range_start=None, range_end=None,
                 counts=result["counts"], data_gaps=result["data_gaps"],
             )
+            set_setting(conn, "last_strava_import_report", result)
         return result
+
+    @app.post("/api/strava/import")
+    async def strava_import(file: UploadFile) -> dict:
+        if demo:
+            raise HTTPException(400, "Demo mode uses synthetic data; there is nothing to import.")
+        from run_coach.strava.importer import inspect_header
+
+        upload_dir = ensure_data_dir() / "uploads"
+        upload_dir.mkdir(exist_ok=True)
+        dest = _strava_upload_path()
+        with dest.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+
+        header_info = inspect_header(dest)
+        if header_info["missing_required_fields"]:
+            return {
+                "needs_mapping": True,
+                "available_headers": header_info["available_headers"],
+                "missing_required_fields": header_info["missing_required_fields"],
+                "matched_fields": header_info["matched_fields"],
+            }
+        return _run_strava_import(None)
+
+    @app.post("/api/strava/import-with-mapping")
+    def strava_import_with_mapping(payload: dict[str, dict[str, str]]) -> dict:
+        if demo:
+            raise HTTPException(400, "Demo mode uses synthetic data; there is nothing to import.")
+        if not _strava_upload_path().exists():
+            raise HTTPException(400, "No uploaded activities.csv found; upload the file again.")
+        return _run_strava_import(payload.get("column_mapping", {}))
+
+    @app.get("/api/strava/last-import")
+    def strava_last_import() -> dict:
+        from run_coach.storage.db import get_setting
+
+        with get_conn() as conn:
+            report = get_setting(conn, "last_strava_import_report")
+        return {"report": report}
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

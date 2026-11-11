@@ -51,20 +51,40 @@
   }
 
   // ---------- API ----------
+  // Every call throws on a non-2xx response, carrying the server's own
+  // detail message, so a failure is never silently swallowed into an empty
+  // or "not enough data" UI state (see api-root-cause notes in app.py).
+  async function asJson(responsePromise) {
+    const r = await responsePromise;
+    let body = null;
+    try {
+      body = await r.json();
+    } catch (e) { /* non-JSON body, fall through to status text below */ }
+    if (!r.ok) {
+      const detail = (body && (body.detail || body.error)) || r.statusText || `HTTP ${r.status}`;
+      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return body;
+  }
+
   const api = {
-    status: () => fetch("/api/status").then((r) => r.json()),
-    stats: () => fetch("/api/stats").then((r) => r.json()),
-    recommendations: () => fetch("/api/recommendations").then((r) => r.json()),
-    generateRecommendations: () => fetch("/api/recommendations/generate", { method: "POST" }).then((r) => r.json()),
-    saveSettings: (payload) => fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((r) => r.json()),
-    saveSecrets: (payload) => fetch("/api/setup/secrets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((r) => r.json()),
-    sync: () => fetch("/api/sync", { method: "POST" }).then((r) => r.json()),
-    reset: () => fetch("/api/reset", { method: "POST" }).then((r) => r.json()),
+    status: () => asJson(fetch("/api/status")),
+    stats: () => asJson(fetch("/api/stats")),
+    recommendations: () => asJson(fetch("/api/recommendations")),
+    generateRecommendations: () => asJson(fetch("/api/recommendations/generate", { method: "POST" })),
+    saveSettings: (payload) => asJson(fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })),
+    saveSecrets: (payload) => asJson(fetch("/api/setup/secrets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })),
+    sync: () => asJson(fetch("/api/sync", { method: "POST" })),
+    reset: () => asJson(fetch("/api/reset", { method: "POST" })),
+    testClaude: () => asJson(fetch("/api/claude/test", { method: "POST" })),
     importStrava: (file) => {
       const form = new FormData();
       form.append("file", file);
-      return fetch("/api/strava/import", { method: "POST", body: form }).then((r) => r.json());
+      return asJson(fetch("/api/strava/import", { method: "POST", body: form }));
     },
+    importStravaWithMapping: (columnMapping) =>
+      asJson(fetch("/api/strava/import-with-mapping", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ column_mapping: columnMapping }) })),
+    lastStravaImport: () => asJson(fetch("/api/strava/last-import")),
   };
 
   // ---------- wizard ----------
@@ -113,7 +133,18 @@
     await api.saveSettings(settingsPayload);
 
     if (wizardStravaFile) {
-      await api.importStrava(wizardStravaFile);
+      try {
+        const result = await api.importStrava(wizardStravaFile);
+        if (result && result.needs_mapping) {
+          alert(
+            "Your Strava export's column headers weren't recognized automatically. " +
+            "Setup will continue without it — finish the import from the Settings section on the dashboard, " +
+            "where you can map the columns by hand."
+          );
+        }
+      } catch (e) {
+        alert("Strava import failed: " + e.message + "\n\nSetup will continue; you can retry the import from the Settings section on the dashboard.");
+      }
     }
 
     document.getElementById("wizard-next").textContent = "Syncing…";
@@ -363,6 +394,99 @@
     };
   }
 
+  // ---------- settings: strava import ----------
+  function renderStravaImportReport(report) {
+    const box = document.getElementById("strava-import-report");
+    if (!report) {
+      box.innerHTML = '<div class="not-enough-data">no import yet</div>';
+      return;
+    }
+    const c = report.counts || {};
+    const range = report.date_range ? `${report.date_range.start} to ${report.date_range.end}` : "—";
+    const rows = [
+      ["Rows read", c.rows_read],
+      ["Imported", c.imported],
+      ["Duplicates of Garmin (skipped)", c.skipped_duplicate_of_garmin],
+      ["Skipped (missing id/date)", c.skipped_missing_fields],
+      ["Skipped (unparseable date)", c.skipped_unparseable_date],
+      ["Date range covered", range],
+    ];
+    let html = '<table class="data-table">' + rows.map(([label, v]) => `<tr><td>${label}</td><td>${v == null ? "—" : v}</td></tr>`).join("") + "</table>";
+    if (report.columns_not_found && report.columns_not_found.length) {
+      html += `<div class="hint" style="margin-top:8px;">Columns not found: ${report.columns_not_found.map(escapeHtml).join(", ")}</div>`;
+    }
+    if (report.data_gaps && report.data_gaps.length) {
+      html += '<div class="hint" style="margin-top:8px;">' + report.data_gaps.map((g) => escapeHtml(g)).join("<br/>") + "</div>";
+    }
+    box.innerHTML = html;
+  }
+
+  function renderMappingUi(info, onSubmit) {
+    const box = document.getElementById("strava-mapping-ui");
+    box.classList.remove("hidden");
+    box.innerHTML = "";
+    box.appendChild(el("p", { class: "hint" }, [
+      `Couldn't automatically match these required columns: ${info.missing_required_fields.join(", ")}. ` +
+      "Pick the matching column from your file's actual header row below.",
+    ]));
+    const selects = {};
+    for (const field of info.missing_required_fields) {
+      const select = el("select", {}, [
+        el("option", { value: "" }, ["— not present —"]),
+        ...info.available_headers.map((h) => el("option", { value: h }, [h])),
+      ]);
+      selects[field] = select;
+      box.appendChild(el("div", { class: "field" }, [el("label", {}, [field]), select]));
+    }
+    const submitBtn = el("button", { class: "primary" }, ["Import with this mapping"]);
+    submitBtn.addEventListener("click", () => {
+      const mapping = {};
+      for (const [field, select] of Object.entries(selects)) mapping[field] = select.value;
+      onSubmit(mapping);
+    });
+    box.appendChild(submitBtn);
+  }
+
+  function initStravaSettings() {
+    const fileInput = document.getElementById("settings_strava_file");
+    const importBtn = document.getElementById("settings-strava-import-btn");
+
+    api.lastStravaImport().then((r) => renderStravaImportReport(r.report)).catch(() => renderStravaImportReport(null));
+
+    importBtn.addEventListener("click", async () => {
+      const file = fileInput.files[0];
+      if (!file) { alert("Choose a CSV file first."); return; }
+      importBtn.disabled = true;
+      importBtn.textContent = "Importing…";
+      document.getElementById("strava-mapping-ui").classList.add("hidden");
+      try {
+        const result = await api.importStrava(file);
+        if (result.needs_mapping) {
+          renderMappingUi(result, async (mapping) => {
+            importBtn.disabled = true;
+            try {
+              const final = await api.importStravaWithMapping(mapping);
+              renderStravaImportReport(final);
+              document.getElementById("strava-mapping-ui").classList.add("hidden");
+            } catch (e) {
+              alert("Import with mapping failed: " + e.message);
+            } finally {
+              importBtn.disabled = false;
+              importBtn.textContent = "Import";
+            }
+          });
+        } else {
+          renderStravaImportReport(result);
+        }
+      } catch (e) {
+        alert("Strava import failed: " + e.message);
+      } finally {
+        importBtn.disabled = false;
+        importBtn.textContent = "Import";
+      }
+    });
+  }
+
   // ---------- boot ----------
   async function boot() {
     const status = await api.status();
@@ -386,7 +510,9 @@
           await api.sync();
           location.reload();
         } catch (e) {
+          syncBtn.disabled = false;
           syncBtn.textContent = "Sync failed";
+          alert("Sync failed: " + e.message);
         }
       });
       actions.appendChild(syncBtn);
@@ -409,6 +535,9 @@
         }
       });
       actions.appendChild(logoutBtn);
+      initStravaSettings();
+    } else {
+      document.getElementById("section-settings").classList.add("hidden");
     }
 
     document.getElementById("dashboard-view").classList.remove("hidden");

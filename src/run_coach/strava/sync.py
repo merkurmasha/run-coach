@@ -9,18 +9,41 @@ run.
 
 from __future__ import annotations
 
+import csv
 import sqlite3
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from run_coach.storage.db import Activity, find_activity_near, upsert_activity
-from run_coach.strava.importer import parse_strava_csv
+from run_coach.strava.importer import FIELD_CANDIDATES, inspect_header, parse_strava_csv
 
 DEDUP_TOLERANCE_MINUTES = 5
 
 
-def import_strava_csv(conn: sqlite3.Connection, path: Path, timezone_name: str | None = None) -> dict:
-    activities, gaps = parse_strava_csv(path)
+def _count_csv_rows(path: Path) -> int:
+    with path.open(newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        return sum(1 for _ in reader)
+
+
+def import_strava_csv(
+    conn: sqlite3.Connection,
+    path: Path,
+    timezone_name: str | None = None,
+    column_overrides: dict[str, str] | None = None,
+) -> dict:
+    header_info = inspect_header(path)
+    rows_read = _count_csv_rows(path)
+    columns_not_found = [
+        field
+        for field in FIELD_CANDIDATES
+        if field not in {**header_info["matched_fields"], **(column_overrides or {})}
+    ]
+
+    activities, gaps = parse_strava_csv(path, column_overrides=column_overrides)
+
+    unparseable_dates = sum(1 for g in gaps if "unrecognized date format" in g)
+    skipped_missing_fields = max(0, rows_read - len(activities) - unparseable_dates)
 
     tz = None
     if timezone_name:
@@ -71,13 +94,24 @@ def import_strava_csv(conn: sqlite3.Connection, path: Path, timezone_name: str |
         )
         imported += 1
 
+    if activities:
+        dates = sorted(a.start_time_local.date().isoformat() for a in activities)
+        date_range = {"start": dates[0], "end": dates[-1]}
+    else:
+        date_range = None
+
     return {
         "counts": {
+            "rows_read": rows_read,
             "imported": imported,
             "updated": updated,
             "skipped_duplicate_of_garmin": skipped_duplicate_of_garmin,
+            "skipped_unparseable_date": unparseable_dates,
+            "skipped_missing_fields": skipped_missing_fields,
             "total_rows": len(activities),
         },
+        "date_range": date_range,
+        "columns_not_found": columns_not_found,
         "data_gaps": gaps,
     }
 

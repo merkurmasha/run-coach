@@ -8,6 +8,11 @@ names across activity types. Rather than assume one fixed header row, we
 match each logical field against several candidate header spellings and
 skip (recording a gap) when nothing matches — never guess a value.
 
+The Spanish and Russian candidates below are best-effort: we don't have a
+real export in either language to verify against (same caveat as Garmin's
+undocumented response fields -- see garmin/client.py). If a real export
+doesn't match, the column-mapping step covers it.
+
 Columns we intentionally never read: any header containing "description" or
 "note" (case-insensitive) — that's "Activity Description" and "Private
 Note" in English exports, which the project must never store.
@@ -16,24 +21,27 @@ Note" in English exports, which the project must never store.
 from __future__ import annotations
 
 import csv
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-EXCLUDED_HEADER_SUBSTRINGS = ("description", "note")
+EXCLUDED_HEADER_SUBSTRINGS = ("description", "note", "nota", "описание", "заметка")
 
 FIELD_CANDIDATES = {
-    "id": ["Activity ID"],
-    "date": ["Activity Date"],
-    "type": ["Activity Type"],
-    "distance": ["Distance"],
-    "moving_time": ["Moving Time"],
-    "elapsed_time": ["Elapsed Time"],
-    "avg_hr": ["Average Heart Rate"],
-    "max_hr": ["Max Heart Rate"],
-    "elevation_gain": ["Elevation Gain"],
-    "calories": ["Calories"],
+    "id": ["Activity ID", "ID de la actividad", "ID активности"],
+    "date": ["Activity Date", "Fecha de la actividad", "Дата активности"],
+    "type": ["Activity Type", "Tipo de actividad", "Тип активности"],
+    "distance": ["Distance", "Distancia", "Дистанция"],
+    "moving_time": ["Moving Time", "Tiempo en movimiento", "Время в движении"],
+    "elapsed_time": ["Elapsed Time", "Tiempo transcurrido", "Затраченное время"],
+    "avg_hr": ["Average Heart Rate", "Frecuencia cardíaca media", "Средний пульс"],
+    "max_hr": ["Max Heart Rate", "Frecuencia cardíaca máxima", "Максимальный пульс"],
+    "elevation_gain": ["Elevation Gain", "Desnivel positivo", "Набор высоты"],
+    "calories": ["Calories", "Calorías", "Калории"],
 }
+
+REQUIRED_FIELDS = ("id", "date", "type")
 
 # Strava's CSV export has used a few date formats over the years.
 DATE_FORMATS = [
@@ -43,6 +51,8 @@ DATE_FORMATS = [
 ]
 
 RUN_TYPES = {"run", "trail run", "virtual run"}
+
+DURATION_RE = re.compile(r"^\d+:\d{2}(:\d{2})?$")
 
 
 @dataclass
@@ -72,13 +82,59 @@ def _build_column_map(fieldnames: list[str]) -> dict[str, str]:
     return column_map
 
 
+def inspect_header(path: Path) -> dict:
+    """What the importer could and couldn't match, without importing anything.
+
+    Used by the web layer to decide whether to show a column-mapping step
+    instead of silently importing zero rows.
+    """
+    with path.open(newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fieldnames = list(reader.fieldnames or [])
+    column_map = _build_column_map(fieldnames)
+    return {
+        "available_headers": fieldnames,
+        "matched_fields": column_map,
+        "missing_required_fields": [f for f in REQUIRED_FIELDS if f not in column_map],
+    }
+
+
 def _safe_float(value: str | None) -> float | None:
     if value is None or value.strip() == "":
         return None
+    value = value.strip()
     try:
         return float(value)
     except ValueError:
+        pass
+    # European-style decimal comma ("5,0"), vs. a thousands-separator comma
+    # ("1,234.56") which we strip instead.
+    if "," in value and "." not in value:
+        try:
+            return float(value.replace(",", "."))
+        except ValueError:
+            return None
+    if "," in value and "." in value:
+        try:
+            return float(value.replace(",", ""))
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_duration_seconds(value: str | None) -> float | None:
+    """Accept both Strava's usual raw-seconds export and an "H:MM:SS" string."""
+    if value is None or value.strip() == "":
         return None
+    value = value.strip()
+    if DURATION_RE.match(value):
+        parts = [int(p) for p in value.split(":")]
+        if len(parts) == 3:
+            h, m, s = parts
+        else:
+            h, m, s = 0, *parts
+        return float(h * 3600 + m * 60 + s)
+    return _safe_float(value)
 
 
 def _parse_date(value: str) -> datetime | None:
@@ -91,7 +147,9 @@ def _parse_date(value: str) -> datetime | None:
     return None
 
 
-def parse_strava_csv(path: Path) -> tuple[list[ParsedStravaActivity], list[str]]:
+def parse_strava_csv(
+    path: Path, column_overrides: dict[str, str] | None = None
+) -> tuple[list[ParsedStravaActivity], list[str]]:
     gaps: list[str] = []
     activities: list[ParsedStravaActivity] = []
 
@@ -110,7 +168,11 @@ def parse_strava_csv(path: Path) -> tuple[list[ParsedStravaActivity], list[str]]
             gaps.append(f"strava: ignored description/note columns: {', '.join(excluded)}")
 
         column_map = _build_column_map(reader.fieldnames)
-        required_missing = [f for f in ("id", "date", "type") if f not in column_map]
+        if column_overrides:
+            for field, header_name in column_overrides.items():
+                if header_name and header_name in reader.fieldnames:
+                    column_map[field] = header_name
+        required_missing = [f for f in REQUIRED_FIELDS if f not in column_map]
         if required_missing:
             gaps.append(
                 f"strava: could not find columns for {required_missing} in activities.csv header; "
@@ -130,8 +192,8 @@ def parse_strava_csv(path: Path) -> tuple[list[ParsedStravaActivity], list[str]]
                 continue
 
             distance_m = _safe_float(row.get(column_map.get("distance", ""), None))
-            moving_time_s = _safe_float(row.get(column_map.get("moving_time", ""), None))
-            elapsed_time_s = _safe_float(row.get(column_map.get("elapsed_time", ""), None))
+            moving_time_s = _parse_duration_seconds(row.get(column_map.get("moving_time", ""), None))
+            elapsed_time_s = _parse_duration_seconds(row.get(column_map.get("elapsed_time", ""), None))
 
             if (
                 activity_type.lower() in RUN_TYPES
@@ -139,10 +201,17 @@ def parse_strava_csv(path: Path) -> tuple[list[ParsedStravaActivity], list[str]]
                 and moving_time_s
                 and not _plausible_running_pace(distance_m, moving_time_s)
             ):
-                gaps.append(
-                    f"strava activity {external_id}: distance/time combination gives an implausible "
-                    "running pace; the Distance column's unit may not be meters as assumed"
-                )
+                if _plausible_running_pace(distance_m * 1000, moving_time_s):
+                    gaps.append(
+                        f"strava activity {external_id}: Distance column looks like it's in km, not "
+                        "meters; auto-converted"
+                    )
+                    distance_m = distance_m * 1000
+                else:
+                    gaps.append(
+                        f"strava activity {external_id}: distance/time combination gives an implausible "
+                        "running pace; the Distance column's unit may not be meters as assumed"
+                    )
 
             activities.append(
                 ParsedStravaActivity(
