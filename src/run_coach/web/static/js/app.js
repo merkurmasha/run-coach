@@ -77,6 +77,10 @@
     sync: () => asJson(fetch("/api/sync", { method: "POST" })),
     reset: () => asJson(fetch("/api/reset", { method: "POST" })),
     testClaude: () => asJson(fetch("/api/claude/test", { method: "POST" })),
+    saveClaudeKey: (apiKey) =>
+      asJson(fetch("/api/settings/claude-key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: apiKey }) })),
+    saveGarminKey: (apiKey) =>
+      asJson(fetch("/api/settings/garmin-key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: apiKey }) })),
     importStrava: (file) => {
       const form = new FormData();
       form.append("file", file);
@@ -798,6 +802,35 @@
     });
   }
 
+  // Shared wiring for the Claude/Garmin "Save and test" buttons in
+  // Settings: write the key, test it with a real call, and show only the
+  // last 4 characters of what's saved -- never the key itself.
+  function initApiKeySaveButton(inputId, buttonId, resultId, currentLabelId, saveFn) {
+    const input = document.getElementById(inputId);
+    const btn = document.getElementById(buttonId);
+    const resultEl = document.getElementById(resultId);
+    const currentLabel = document.getElementById(currentLabelId);
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      resultEl.textContent = "Saving and testing…";
+      resultEl.className = "";
+      try {
+        const result = await saveFn(input.value);
+        resultEl.textContent = result.message;
+        resultEl.className = result.ok ? "test-ok" : "test-fail";
+        if (result.masked_key) {
+          currentLabel.textContent = `Saved key ends in ${result.masked_key}.`;
+          input.value = "";
+        }
+      } catch (e) {
+        resultEl.textContent = e.message;
+        resultEl.className = "test-fail";
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
   function initStravaSettings() {
     const fileInput = document.getElementById("settings_strava_file");
     const importBtn = document.getElementById("settings-strava-import-btn");
@@ -888,6 +921,8 @@
       actions.appendChild(logoutBtn);
       initStravaSettings();
       initClaudeTestButton();
+      initApiKeySaveButton("settings_claude_key", "save-claude-key-btn", "save-claude-key-result", "claude-key-current", api.saveClaudeKey);
+      initApiKeySaveButton("settings_garmin_key", "save-garmin-key-btn", "save-garmin-key-result", "garmin-key-current", api.saveGarminKey);
     } else {
       document.getElementById("section-settings").classList.add("hidden");
     }

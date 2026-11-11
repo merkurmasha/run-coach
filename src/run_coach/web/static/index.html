@@ -281,12 +281,35 @@
         <div id="strava-import-report" style="margin-top:14px;"></div>
       </div>
 
-      <div class="card">
+      <div class="card" style="margin-bottom:16px;">
         <div class="label" style="font-size:12px; color:var(--ink-muted); margin-bottom:10px;">Claude connection</div>
         <p class="hint">Checks that <code>ANTHROPIC_API_KEY</code> is set and that a real call to the model configured in <code>CLAUDE_MODEL</code> succeeds.</p>
-        <div style="display:flex; gap:10px; align-items:center;">
+        <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px;">
           <button id="test-claude-btn">Test connection</button>
           <span id="test-claude-result"></span>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label for="settings_claude_key">Claude API key</label>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <input type="password" id="settings_claude_key" autocomplete="off" placeholder="sk-ant-..." style="flex:1;" />
+            <button id="save-claude-key-btn">Save and test</button>
+          </div>
+          <div class="field-hint" id="claude-key-current"></div>
+          <div id="save-claude-key-result" style="margin-top:6px;"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="label" style="font-size:12px; color:var(--ink-muted); margin-bottom:10px;">Garmin connection</div>
+        <p class="hint">Replaces <code>GARMIN_API_KEY</code> in <code>.env</code> and runs a real token exchange with Garmin to confirm it works.</p>
+        <div class="field" style="margin-bottom:0;">
+          <label for="settings_garmin_key">Garmin Personal API key</label>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <input type="password" id="settings_garmin_key" autocomplete="off" style="flex:1;" />
+            <button id="save-garmin-key-btn">Save and test</button>
+          </div>
+          <div class="field-hint" id="garmin-key-current"></div>
+          <div id="save-garmin-key-result" style="margin-top:6px;"></div>
         </div>
       </div>
     </section>

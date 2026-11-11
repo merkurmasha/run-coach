@@ -7,6 +7,7 @@ user's own machine for the user alone.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 from pathlib import Path
@@ -73,6 +74,65 @@ def _describe_claude_error(exc: Exception) -> str:
     elif isinstance(exc, anthropic.APIStatusError):
         message = f"Anthropic API error ({exc.status_code}): {exc.message}"
     return _KEY_PATTERN.sub("[REDACTED]", message)
+
+
+def _describe_garmin_error(exc: Exception) -> str:
+    """A short, redacted, user-facing description of a Garmin token-exchange
+    failure. The API key only ever travels in a request header (see
+    garmin_personal_api's PersonalApiAuthenticator.obtain_token), so it
+    can't appear in these messages, but errors are still kept short rather
+    than dumping a raw response body."""
+    from garmin_personal_api import GarminPersonalApiError, HttpError
+
+    if isinstance(exc, HttpError):
+        if exc.status_code in (401, 403):
+            return "Authentication failed -- check that GARMIN_API_KEY in .env is correct."
+        return f"Garmin API error (HTTP {exc.status_code})."
+    if isinstance(exc, GarminPersonalApiError):
+        return "Could not reach Garmin -- the API responded with an unexpected error."
+    return "Could not reach Garmin -- check your network connection."
+
+
+def _clean_secret_value(raw: str | None) -> str:
+    """Strip whitespace and one layer of matching surrounding quotes from a
+    pasted key, mirroring config.read_env's own parsing."""
+    value = (raw or "").strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1].strip()
+    return value
+
+
+def _mask_key(value: str) -> str | None:
+    if not value:
+        return None
+    return f"...{value[-4:]}" if len(value) > 4 else "..."
+
+
+def _test_claude_connection(secrets: Secrets) -> dict:
+    if not secrets.anthropic_api_key:
+        return {"ok": False, "stage": "config", "message": "ANTHROPIC_API_KEY is not set in .env."}
+    client = anthropic.Anthropic(api_key=secrets.anthropic_api_key)
+    try:
+        client.messages.create(
+            model=secrets.claude_model,
+            max_tokens=16,
+            messages=[{"role": "user", "content": "Reply with only the word: ok"}],
+        )
+    except Exception as exc:  # defensive: this is a diagnostic endpoint, any failure is a result to show
+        return {"ok": False, "stage": "api", "message": _describe_claude_error(exc)}
+    return {"ok": True, "stage": "done", "message": f"Connected -- {secrets.claude_model} responded."}
+
+
+def _test_garmin_connection(api_key: str | None) -> dict:
+    if not api_key:
+        return {"ok": False, "stage": "config", "message": "GARMIN_API_KEY is not set in .env."}
+    from run_coach.garmin.client import GarminClient
+
+    try:
+        GarminClient(api_key).close()
+    except Exception as exc:  # defensive: this is a diagnostic endpoint, any failure is a result to show
+        return {"ok": False, "stage": "api", "message": _describe_garmin_error(exc)}
+    return {"ok": True, "stage": "done", "message": "Connected -- Garmin accepted the key and issued a token."}
 
 
 def create_app(demo: bool = False) -> FastAPI:
@@ -232,20 +292,7 @@ def create_app(demo: bool = False) -> FastAPI:
     def test_claude() -> dict:
         if demo:
             raise HTTPException(400, "Demo mode doesn't use the Claude API.")
-        secrets = Secrets.load()
-        if not secrets.anthropic_api_key:
-            return {"ok": False, "stage": "config", "message": "ANTHROPIC_API_KEY is not set in .env."}
-
-        client = anthropic.Anthropic(api_key=secrets.anthropic_api_key)
-        try:
-            client.messages.create(
-                model=secrets.claude_model,
-                max_tokens=16,
-                messages=[{"role": "user", "content": "Reply with only the word: ok"}],
-            )
-        except Exception as exc:  # defensive: this is a diagnostic endpoint, any failure is a result to show
-            return {"ok": False, "stage": "api", "message": _describe_claude_error(exc)}
-        return {"ok": True, "stage": "done", "message": f"Connected -- {secrets.claude_model} responded."}
+        return _test_claude_connection(Secrets.load())
 
     @app.post("/api/settings")
     def save_settings(payload: dict[str, Any]) -> dict:
@@ -261,6 +308,17 @@ def create_app(demo: bool = False) -> FastAPI:
             conn.close()
         return {"ok": True}
 
+    def _sync_env_updates_to_process(updates: dict[str, str]) -> None:
+        """So a key saved just now is picked up by the next Secrets.load()
+        in *this* process, even if an old value for the same name happens
+        to already be sitting in os.environ (which Secrets.load() would
+        otherwise prefer over the freshly-written .env file)."""
+        for key, value in updates.items():
+            if value:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
+
     @app.post("/api/setup/secrets")
     def save_secrets(payload: dict[str, str]) -> dict:
         if demo:
@@ -270,7 +328,34 @@ def create_app(demo: bool = False) -> FastAPI:
             if key in payload and payload[key] is not None:
                 updates[key] = payload[key]
         write_env(updates)
+        _sync_env_updates_to_process(updates)
         return {"ok": True}
+
+    @app.post("/api/settings/claude-key")
+    def save_claude_key(payload: dict[str, str]) -> dict:
+        if demo:
+            raise HTTPException(400, "Setup is disabled in demo mode.")
+        cleaned = _clean_secret_value(payload.get("api_key"))
+        if not cleaned:
+            return {"ok": False, "stage": "config", "message": "No Claude API key entered.", "masked_key": None}
+        write_env({"ANTHROPIC_API_KEY": cleaned})
+        _sync_env_updates_to_process({"ANTHROPIC_API_KEY": cleaned})
+        result = _test_claude_connection(Secrets.load())
+        result["masked_key"] = _mask_key(cleaned)
+        return result
+
+    @app.post("/api/settings/garmin-key")
+    def save_garmin_key(payload: dict[str, str]) -> dict:
+        if demo:
+            raise HTTPException(400, "Setup is disabled in demo mode.")
+        cleaned = _clean_secret_value(payload.get("api_key"))
+        if not cleaned:
+            return {"ok": False, "stage": "config", "message": "No Garmin API key entered.", "masked_key": None}
+        write_env({"GARMIN_API_KEY": cleaned})
+        _sync_env_updates_to_process({"GARMIN_API_KEY": cleaned})
+        result = _test_garmin_connection(cleaned)
+        result["masked_key"] = _mask_key(cleaned)
+        return result
 
     @app.post("/api/reset")
     def reset() -> dict:
