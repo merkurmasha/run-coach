@@ -24,6 +24,22 @@ DEFAULT_REFERENCE_HR = 150.0
 TREND_ROLLING_WEEKS = 8
 
 
+def hr_coverage(activities: list) -> dict:
+    """How many running activities (overall, and from Strava specifically)
+    have heart-rate data -- the number behind every "needs heart-rate
+    data" empty state, so the dashboard can say exactly how far off it is
+    instead of just "not enough data yet".
+    """
+    runs = [a for a in activities if is_running(a["activity_type"])]
+    strava_runs = [r for r in runs if r["source"] == "strava"]
+    return {
+        "total_runs": len(runs),
+        "runs_with_hr": sum(1 for r in runs if r["avg_hr"] is not None),
+        "strava_total": len(strava_runs),
+        "strava_with_hr": sum(1 for r in strava_runs if r["avg_hr"] is not None),
+    }
+
+
 def _least_squares(xs: list[float], ys: list[float]) -> tuple[float, float] | None:
     n = len(xs)
     if n < 2:

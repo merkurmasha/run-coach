@@ -121,7 +121,7 @@ def create_app(demo: bool = False) -> FastAPI:
 
     @app.get("/api/progress")
     def progress(range: str = "4w") -> dict:
-        from run_coach.metrics.efficiency import DEFAULT_REFERENCE_HR, pace_at_hr_trend
+        from run_coach.metrics.efficiency import DEFAULT_REFERENCE_HR, hr_coverage, pace_at_hr_trend
         from run_coach.metrics.progress import (
             pace_trend_series,
             personal_bests,
@@ -150,6 +150,7 @@ def create_app(demo: bool = False) -> FastAPI:
                 "personal_bests_timeline": personal_bests_timeline(activities),
                 "race_markers": race_markers(activities, range_key=range_key),
                 "race_predictions": race_time_predictions(pbs),
+                "hr_coverage": hr_coverage(activities),
             }
         finally:
             conn.close()

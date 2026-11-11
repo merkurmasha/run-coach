@@ -6,8 +6,9 @@ activity rows -- see recommendations/claude_client.py.
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 
-from run_coach.metrics.efficiency import DEFAULT_REFERENCE_HR, monthly_pace_at_hr
+from run_coach.metrics.efficiency import DEFAULT_REFERENCE_HR, hr_coverage, monthly_pace_at_hr
 from run_coach.metrics.load import hr_zone_distribution, weekly_volume
 from run_coach.metrics.patterns import cycle_phase_patterns
 from run_coach.metrics.progress import (
@@ -25,12 +26,75 @@ from run_coach.storage.db import (
     latest_data_gaps,
 )
 
+RECOVERY_METRIC_LABELS = {
+    "hrv_ms": "HRV",
+    "resting_hr": "resting heart rate",
+    "sleep_duration_s": "sleep duration",
+    "sleep_score": "sleep score",
+}
+
+
+def _garmin_history_note(activities: list) -> str:
+    """Always states the covered span (or its absence) rather than only
+    flagging it when "too short" -- a short history is itself useful to
+    know, not just a threshold to cross."""
+    garmin_dates = sorted(a["local_date"] for a in activities if a["source"] == "garmin")
+    if not garmin_dates:
+        return "no Garmin activities synced yet"
+    start, end = garmin_dates[0], garmin_dates[-1]
+    days = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+    return f"Garmin activity history covers {start} to {end} ({days} day{'s' if days != 1 else ''})"
+
+
+def _hr_coverage_note(coverage: dict) -> str | None:
+    if coverage["total_runs"] == 0:
+        return None
+    strava_part = (
+        f" ({coverage['strava_with_hr']} of {coverage['strava_total']} from Strava)"
+        if coverage["strava_total"]
+        else ""
+    )
+    return (
+        f"{coverage['runs_with_hr']} of {coverage['total_runs']} runs have heart-rate data{strava_part} "
+        "-- aerobic efficiency and HR-zone charts need more runs with it"
+    )
+
+
+def _recovery_gap_notes(recovery: dict) -> list[str]:
+    return [
+        f"no {RECOVERY_METRIC_LABELS[metric]} readings from Garmin in the last 7 days"
+        for metric, info in recovery.items()
+        if info.get("n_recent", 0) == 0 and metric in RECOVERY_METRIC_LABELS
+    ]
+
+
+def compute_data_gaps(
+    conn: sqlite3.Connection, activities: list, recovery: dict, coverage: dict, hr_zone_dist: dict
+) -> list[str]:
+    """Every sync-time gap already logged, plus gaps that are true right
+    now regardless of whether a sync ever reported them -- so this section
+    never has to fall back to "none recorded" when there is, in fact,
+    something worth flagging."""
+    gaps = list(latest_data_gaps(conn))
+    gaps.append(_garmin_history_note(activities))
+    hr_note = _hr_coverage_note(coverage)
+    if hr_note:
+        gaps.append(hr_note)
+    if not hr_zone_dist["available"]:
+        gaps.append("no per-zone heart-rate minutes from Garmin for any running activity yet")
+    gaps.extend(_recovery_gap_notes(recovery))
+    return gaps
+
 
 def build_stats(conn: sqlite3.Connection) -> dict:
     activities = all_activities(conn)
     daily_metrics = all_daily_metrics(conn)
     cycle_entries = all_cycle_entries(conn)
     settings = all_settings(conn)
+
+    recovery = recovery_summary(daily_metrics)
+    coverage = hr_coverage(activities)
+    hr_zone_dist = hr_zone_distribution(conn, activities)
 
     pbs = personal_bests(activities)
     pbs_json = {
@@ -63,9 +127,9 @@ def build_stats(conn: sqlite3.Connection) -> dict:
         },
         "load": {
             "weekly_volume": weekly_volume(activities),
-            "hr_zone_distribution": hr_zone_distribution(conn, activities),
+            "hr_zone_distribution": hr_zone_dist,
         },
-        "recovery": recovery_summary(daily_metrics),
+        "recovery": recovery,
         "patterns": {
             "cycle_phase": cycle_phase_patterns(activities, cycle_entries),
             "special_conditions": settings.get("special_conditions_text"),
@@ -78,5 +142,6 @@ def build_stats(conn: sqlite3.Connection) -> dict:
             "runs_per_week": settings.get("runs_per_week"),
             "follows_watch_plan": settings.get("follows_watch_plan", False),
         },
-        "data_gaps": latest_data_gaps(conn),
+        "hr_coverage": coverage,
+        "data_gaps": compute_data_gaps(conn, activities, recovery, coverage, hr_zone_dist),
     }
